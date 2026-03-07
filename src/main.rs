@@ -1,24 +1,51 @@
-mod identity;
-mod error;
+mod api {
+    pub mod client;
+    pub mod admin;
+}
 
-use identity::DeviceIdentity;
-use std::fs;
-use std::path::Path;
+mod web {
+    pub mod static_files;
+}
 
-const IDENTITY_FILE: &str = "identity.json";
+mod network {
+    pub mod mdns;
+}
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let identity = if Path::new(IDENTITY_FILE).exists() {
-        let data = fs::read_to_string(IDENTITY_FILE)?;
-        serde_json::from_str::<DeviceIdentity>(&data)?
-    } else {
-        let identity = DeviceIdentity::generate();
-        let json = serde_json::to_string_pretty(&identity)?;
-        fs::write(IDENTITY_FILE, json)?;
-        identity
-    };
+use axum::{
+    response::Response,
+    routing::get,
+    Router,
+};
+use web::static_files::serve_static;
+use network::mdns::start_mdns_service;
 
-    println!("Device ID: {}", identity.device_id());
+#[tokio::main]
+async fn main() {
+    let _mdns = start_mdns_service(8080);
 
-    Ok(())
+    let app = Router::new()
+        .route("/api/client/status", get(api::client::server_status))
+        .route("/api/admin/pairings", get(api::admin::list_pairings))
+        .route("/", get(index_handler))
+        .route("/*file", get(handler));
+
+    println!("Server running on http://localhost:8080");
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
+        .await
+        .unwrap();
+
+    axum::serve(listener, app)
+        .await
+        .unwrap();
+}
+
+async fn index_handler() -> Response {
+    serve_static("index.html".to_string()).await
+}
+
+async fn handler(uri: axum::http::Uri) -> Response {
+    println!("{}", uri.path());
+    let path = uri.path().trim_start_matches('/').to_string();
+    serve_static(path).await
 }

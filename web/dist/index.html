@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>PCloud Admin</title>
+</head>
+
+<body>
+
+    <h1>PCloud Server</h1>
+
+    <button onclick="loadPairings()">Load Pairing Requests</button>
+
+    <pre id="output"></pre>
+
+    <script>
+        async function loadPairings() {
+
+            const res = await fetch('/api/admin/pairings');
+            const data = await res.json();
+
+            document.getElementById('output').textContent =
+                JSON.stringify(data, null, 2);
+        }
+    </script>
+
+</body>
+
+</html>
