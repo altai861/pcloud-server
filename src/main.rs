@@ -23,21 +23,32 @@ use network::mdns::start_mdns_service;
 async fn main() {
     let _mdns = start_mdns_service(8080);
 
-    let app = Router::new()
-        .route("/api/client/status", get(api::client::server_status))
+    let client_app = Router::new()
+        .route("/api/client/status", get(api::client::server_status));
+
+    let admin_app = Router::new()
         .route("/api/admin/pairings", get(api::admin::list_pairings))
         .route("/", get(index_handler))
         .route("/*file", get(handler));
 
-    println!("Server running on http://localhost:8080");
-
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
+    let client_listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
         .await
         .unwrap();
 
-    axum::serve(listener, app)
+    let admin_listener = tokio::net::TcpListener::bind("127.0.0.1:9090")
         .await
         .unwrap();
+
+    println!("Client API running on http://0.0.0.0:8080");
+    println!("Admin UI running on http://127.0.0.1:9090");
+
+    let client_server = axum::serve(client_listener, client_app);
+    let admin_server = axum::serve(admin_listener, admin_app);
+
+    let (client_result, admin_result) = tokio::join!(client_server, admin_server);
+
+    client_result.unwrap();
+    admin_result.unwrap();
 }
 
 async fn index_handler() -> Response {
