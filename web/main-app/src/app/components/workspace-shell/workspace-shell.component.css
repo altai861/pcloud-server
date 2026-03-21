@@ -155,6 +155,10 @@
   gap: 0.55rem;
 }
 
+.new-menu-wrap {
+  position: relative;
+}
+
 .new-button,
 .sidebar-nav a,
 .sidebar-footer a {
@@ -176,6 +180,44 @@
 
 .new-button {
   cursor: pointer;
+  width: 100%;
+}
+
+.new-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 30;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  min-width: 168px;
+  padding: 0.25rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.new-menu button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  min-height: 34px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.new-menu button:hover {
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 8%, var(--panel));
+}
+
+.upload-file-input {
+  display: none;
 }
 
 .new-button:hover,

@@ -8,10 +8,13 @@ use crate::{
 };
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     http::Uri,
     response::Response,
     routing::{get, post},
 };
+
+const MAX_UPLOAD_REQUEST_BYTES: usize = 5 * 1024 * 1024 * 1024;
 
 pub fn build_client_router(state: AppState) -> Router {
     Router::new()
@@ -24,6 +27,15 @@ pub fn build_client_router(state: AppState) -> Router {
             get(auth_handlers::profile_image).post(auth_handlers::update_profile_image),
         )
         .route("/api/client/storage/list", get(storage_handlers::list))
+        .route(
+            "/api/client/storage/folders",
+            post(storage_handlers::create_folder),
+        )
+        .route(
+            "/api/client/storage/files/upload",
+            post(storage_handlers::upload_file)
+                .layer(DefaultBodyLimit::max(MAX_UPLOAD_REQUEST_BYTES)),
+        )
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/", get(client_index_handler))
         .route("/*file", get(client_static_handler))

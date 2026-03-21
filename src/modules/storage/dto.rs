@@ -21,3 +21,10 @@ pub struct StorageListResponse {
     pub user_storage_quota_bytes: i64,
     pub user_storage_used_bytes: i64,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMutationResponse {
+    pub message: String,
+    pub entry: StorageEntryDto,
+}

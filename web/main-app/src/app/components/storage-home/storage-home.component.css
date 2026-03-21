@@ -17,8 +17,8 @@
   height: 100%;
   min-height: 0;
   padding: clamp(0.55rem, 1vw, 0.85rem);
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: clamp(0.45rem, 0.9vw, 0.62rem);
   background: transparent;
 }
@@ -151,11 +151,58 @@ button {
 
 .list-wrap,
 .grid-wrap {
+  flex: 1 1 auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
   min-height: 0;
   overflow: auto;
+}
+
+.upload-progress {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  padding: 0.5rem 0.62rem;
+  display: grid;
+  gap: 0.38rem;
+}
+
+.upload-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.48rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.upload-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--input);
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--focus) 60%, #17c8aa);
+}
+
+.upload-progress-fill.indeterminate {
+  width: 34%;
+  animation: upload-indeterminate 1s linear infinite;
+}
+
+@keyframes upload-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .list-header,

@@ -39,10 +39,24 @@
 
   <section class="workspace-body">
     <aside class="workspace-sidebar">
-      <button class="new-button" type="button">
-        <img src="plus.png" alt="" />
-        <span>New</span>
-      </button>
+      <div class="new-menu-wrap">
+        <button class="new-button" type="button" (click)="toggleNewMenu($event)">
+          <img src="plus.png" alt="" />
+          <span>New</span>
+        </button>
+
+        <section class="new-menu" *ngIf="isNewMenuOpen">
+          <button type="button" (click)="onUploadFileClick($event)">Upload file</button>
+          <button type="button" (click)="onCreateFolderClick($event)">Create folder</button>
+        </section>
+
+        <input
+          #uploadFileInput
+          type="file"
+          class="upload-file-input"
+          (change)="onUploadFileSelected($event)"
+        />
+      </div>
 
       <nav class="sidebar-nav">
         <a routerLink="/app/storage" routerLinkActive="active">

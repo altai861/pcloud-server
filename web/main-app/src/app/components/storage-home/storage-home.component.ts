@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, finalize, Subscription } from 'rxjs';
@@ -10,6 +10,7 @@ import { StorageListResponseDto } from '../../dto/storage-list-response.dto';
 import { ClientSessionService } from '../../services/client-session.service';
 import { RecentEntriesService } from '../../services/recent-entries.service';
 import { StorageApiService } from '../../services/storage-api.service';
+import { StorageSidebarAction, StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
 
 type ViewMode = 'list' | 'grid';
@@ -26,6 +27,7 @@ interface BreadcrumbItem {
   styleUrl: './storage-home.component.css'
 })
 export class StorageHomeComponent implements OnInit, OnDestroy {
+  private actionSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
   private searchTerm = '';
 
@@ -36,11 +38,15 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   storageLoading = false;
   storageErrorMessage = '';
   viewMode: ViewMode = 'list';
+  isUploadInProgress = false;
+  uploadProgressPercent: number | null = null;
+  uploadFileName = '';
 
   constructor(
     private readonly storageApiService: StorageApiService,
     private readonly sessionService: ClientSessionService,
     private readonly recentEntriesService: RecentEntriesService,
+    private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly searchService: WorkspaceSearchService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
@@ -53,11 +59,21 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
         this.searchTerm = term.trim();
         this.loadStorage(this.currentPath);
       });
+
+    this.actionSub = this.storageSidebarActions.actions$.subscribe((action) => {
+      this.handleSidebarAction(action);
+    });
+
+    for (const action of this.storageSidebarActions.consumeQueued()) {
+      this.handleSidebarAction(action);
+    }
   }
 
   ngOnDestroy(): void {
     this.searchSub?.unsubscribe();
     this.searchSub = null;
+    this.actionSub?.unsubscribe();
+    this.actionSub = null;
   }
 
   get breadcrumbs(): BreadcrumbItem[] {
@@ -166,6 +182,113 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
         },
         error: (error: unknown) => {
           this.storageErrorMessage = this.extractError(error, 'Failed to load storage list');
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  private handleSidebarAction(action: StorageSidebarAction): void {
+    if (action.type === 'create-folder') {
+      this.openCreateFolderPrompt();
+      return;
+    }
+
+    this.uploadFile(action.file);
+  }
+
+  private openCreateFolderPrompt(): void {
+    const folderName = window.prompt('Enter folder name');
+    if (folderName === null) {
+      return;
+    }
+
+    const name = folderName.trim();
+    if (name.length === 0) {
+      this.storageErrorMessage = 'Folder name cannot be empty';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.storageLoading = true;
+    this.storageErrorMessage = '';
+
+    this.storageApiService
+      .createFolder('', accessToken, this.currentPath, name)
+      .pipe(finalize(() => {
+        this.storageLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.loadStorage(this.currentPath);
+        },
+        error: (error: unknown) => {
+          this.storageErrorMessage = this.extractError(error, 'Failed to create folder');
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  private uploadFile(file: File): void {
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.isUploadInProgress = true;
+    this.uploadProgressPercent = 0;
+    this.uploadFileName = file.name;
+    this.storageLoading = true;
+    this.storageErrorMessage = '';
+
+    this.storageApiService
+      .uploadFile('', accessToken, this.currentPath, file)
+      .pipe(finalize(() => {
+        this.isUploadInProgress = false;
+        this.uploadProgressPercent = null;
+        this.uploadFileName = '';
+        this.storageLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (event) => {
+          if (event.type === HttpEventType.UploadProgress) {
+            if (event.total && event.total > 0) {
+              this.uploadProgressPercent = Math.min(
+                100,
+                Math.round((event.loaded / event.total) * 100)
+              );
+            } else {
+              this.uploadProgressPercent = null;
+            }
+            this.cdr.detectChanges();
+            return;
+          }
+
+          if (event.type === HttpEventType.Response) {
+            this.uploadProgressPercent = 100;
+            this.loadStorage(this.currentPath);
+          }
+        },
+        error: (error: unknown) => {
+          this.storageErrorMessage = this.extractError(error, 'Failed to upload file');
 
           if (error instanceof HttpErrorResponse && error.status === 401) {
             this.redirectToLogin();

@@ -1,8 +1,9 @@
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpEvent, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { StorageListResponseDto } from '../dto/storage-list-response.dto';
+import { StorageMutationResponseDto } from '../dto/storage-mutation-response.dto';
 
 @Injectable({
   providedIn: 'root'
@@ -31,6 +32,45 @@ export class StorageApiService {
       {
         headers: this.authHeaders(accessToken),
         params
+      }
+    );
+  }
+
+  createFolder(
+    apiBaseUrl: string,
+    accessToken: string,
+    parentPath: string,
+    name: string
+  ): Observable<StorageMutationResponseDto> {
+    return this.http.post<StorageMutationResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/folders'),
+      {
+        parentPath,
+        name
+      },
+      {
+        headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
+  uploadFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string,
+    file: File
+  ): Observable<HttpEvent<StorageMutationResponseDto>> {
+    const formData = new FormData();
+    formData.append('path', path);
+    formData.append('file', file, file.name);
+
+    return this.http.post<StorageMutationResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/files/upload'),
+      formData,
+      {
+        headers: this.authHeaders(accessToken),
+        reportProgress: true,
+        observe: 'events'
       }
     );
   }

@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -8,6 +8,7 @@ import { AuthUserDto } from '../../dto/auth-user.dto';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
 import { ProfileImageService } from '../../services/profile-image.service';
+import { StorageSidebarAction, StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { ThemeService } from '../../services/theme.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
 
@@ -18,17 +19,21 @@ import { WorkspaceSearchService } from '../../services/workspace-search.service'
   styleUrl: './workspace-shell.component.css'
 })
 export class WorkspaceShellComponent implements OnInit, OnDestroy {
+  @ViewChild('uploadFileInput') uploadFileInput: ElementRef<HTMLInputElement> | null = null;
+
   private profileImageSub: Subscription | null = null;
 
   currentUser: AuthUserDto | null = null;
   profileImageSrc: string | null = null;
   searchInput = '';
   isDarkMode = false;
+  isNewMenuOpen = false;
 
   constructor(
     private readonly authApiService: AuthApiService,
     private readonly sessionService: ClientSessionService,
     private readonly profileImageService: ProfileImageService,
+    private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly themeService: ThemeService,
     private readonly searchService: WorkspaceSearchService,
     private readonly router: Router,
@@ -60,6 +65,50 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
 
   toggleTheme(): void {
     this.isDarkMode = this.themeService.toggleTheme() === 'dark';
+  }
+
+  toggleNewMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.isNewMenuOpen = !this.isNewMenuOpen;
+  }
+
+  onCreateFolderClick(event: MouseEvent): void {
+    event.stopPropagation();
+    this.isNewMenuOpen = false;
+    this.dispatchStorageAction({ type: 'create-folder' });
+  }
+
+  onUploadFileClick(event: MouseEvent): void {
+    event.stopPropagation();
+    this.isNewMenuOpen = false;
+    this.uploadFileInput?.nativeElement.click();
+  }
+
+  onUploadFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (input) {
+      input.value = '';
+    }
+
+    if (!file) {
+      return;
+    }
+
+    this.dispatchStorageAction({ type: 'upload-file', file });
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.isNewMenuOpen) {
+      return;
+    }
+
+    const clickedInside = (event.target as HTMLElement | null)?.closest('.new-menu-wrap');
+    if (!clickedInside) {
+      this.isNewMenuOpen = false;
+    }
   }
 
   formatSize(bytes: number | null): string {
@@ -111,6 +160,16 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
         this.router.navigate(['/login']);
       }
     });
+  }
+
+  private dispatchStorageAction(action: StorageSidebarAction): void {
+    if (this.router.url.startsWith('/app/storage')) {
+      this.storageSidebarActions.emit(action);
+      return;
+    }
+
+    this.storageSidebarActions.queue(action);
+    this.router.navigate(['/app/storage']);
   }
 
   private loadProfileImage(token: string): void {

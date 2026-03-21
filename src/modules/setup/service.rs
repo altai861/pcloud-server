@@ -95,6 +95,35 @@ pub async fn initialize(pool: &PgPool, payload: SetupInitializeRequest) -> Resul
     .await
     .map_err(map_database_setup_error)?;
 
+    prepare_user_storage_root(&storage_root, admin_user_id)?;
+
+    let admin_root_folder_id = sqlx::query_scalar::<_, i64>(
+        "
+        INSERT INTO folders (owner_user_id, parent_folder_id, name, path)
+        -- Path is logical inside user's own namespace. Physical root is <storage_root>/users/<id>.
+        VALUES ($1, NULL, '/', '/')
+        RETURNING id
+        ",
+    )
+    .bind(admin_user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(map_database_setup_error)?;
+
+    sqlx::query(
+        "
+        UPDATE users
+        SET root_folder_id = $2,
+            updated_at = NOW()
+        WHERE id = $1
+        ",
+    )
+    .bind(admin_user_id)
+    .bind(admin_root_folder_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_database_setup_error)?;
+
     sqlx::query(
         "
         INSERT INTO system_settings (id, is_initialized, storage_root_path, total_storage_limit_bytes)
@@ -241,8 +270,36 @@ fn prepare_storage_root(value: &str) -> Result<PathBuf, ApiError> {
         ));
     }
 
-    fs::create_dir_all(&path)
-        .map_err(|_| ApiError::BadRequest("storageRootPath cannot be created".to_owned()))?;
+    ensure_directory_writable(
+        &path,
+        "storageRootPath cannot be created",
+        "storageRootPath is not writable",
+        "storageRootPath cleanup failed",
+    )?;
+
+    Ok(path)
+}
+
+fn prepare_user_storage_root(storage_root: &Path, user_id: i64) -> Result<PathBuf, ApiError> {
+    let user_root = storage_root.join("users").join(user_id.to_string());
+
+    ensure_directory_writable(
+        &user_root,
+        "Failed to create admin user storage root directory",
+        "Admin user storage root is not writable",
+        "Admin user storage root cleanup failed",
+    )?;
+
+    Ok(user_root)
+}
+
+fn ensure_directory_writable(
+    path: &Path,
+    create_error: &str,
+    write_error: &str,
+    cleanup_error: &str,
+) -> Result<(), ApiError> {
+    fs::create_dir_all(path).map_err(|_| ApiError::BadRequest(create_error.to_owned()))?;
 
     let probe_path = path.join(".pcloud_write_probe");
 
@@ -251,16 +308,15 @@ fn prepare_storage_root(value: &str) -> Result<PathBuf, ApiError> {
         .truncate(true)
         .write(true)
         .open(&probe_path)
-        .map_err(|_| ApiError::BadRequest("storageRootPath is not writable".to_owned()))?;
+        .map_err(|_| ApiError::BadRequest(write_error.to_owned()))?;
 
     probe_file
         .write_all(b"ok")
-        .map_err(|_| ApiError::BadRequest("storageRootPath is not writable".to_owned()))?;
+        .map_err(|_| ApiError::BadRequest(write_error.to_owned()))?;
 
-    fs::remove_file(&probe_path)
-        .map_err(|_| ApiError::BadRequest("storageRootPath cleanup failed".to_owned()))?;
+    fs::remove_file(&probe_path).map_err(|_| ApiError::BadRequest(cleanup_error.to_owned()))?;
 
-    Ok(path)
+    Ok(())
 }
 
 fn hash_password(password: &str) -> Result<String, ApiError> {

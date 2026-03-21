@@ -36,6 +36,25 @@
     </button>
   </section>
 
+  <section class="upload-progress" *ngIf="isUploadInProgress">
+    <div class="upload-progress-header">
+      <span>Uploading {{ uploadFileName }}</span>
+      <span *ngIf="uploadProgressPercent !== null">{{ uploadProgressPercent }}%</span>
+      <span *ngIf="uploadProgressPercent === null">In progress...</span>
+    </div>
+
+    <div class="upload-progress-track">
+      <div
+        *ngIf="uploadProgressPercent !== null; else indeterminateFill"
+        class="upload-progress-fill determinate"
+        [style.width.%]="uploadProgressPercent"
+      ></div>
+      <ng-template #indeterminateFill>
+        <div class="upload-progress-fill indeterminate"></div>
+      </ng-template>
+    </div>
+  </section>
+
   <section class="list-wrap" *ngIf="viewMode === 'list'">
     <header class="list-header">
       <span>Name</span>
