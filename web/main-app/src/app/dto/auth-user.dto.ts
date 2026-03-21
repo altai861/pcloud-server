@@ -5,4 +5,5 @@ export interface AuthUserDto {
   role: string;
   storageQuotaBytes: number;
   storageUsedBytes: number;
+  profileImageUrl: string | null;
 }

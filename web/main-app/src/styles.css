@@ -12,6 +12,7 @@
   --theme-muted: #5d6b7f;
   --theme-focus: #1fdac3;
   --theme-danger: #b42318;
+  --theme-ok: #067647;
   --theme-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   --theme-input: #ffffff;
 }
@@ -30,6 +31,7 @@
   --theme-muted: #a6b7cb;
   --theme-focus: #1fdac3;
   --theme-danger: #ff8f85;
+  --theme-ok: #4ecb99;
   --theme-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
   --theme-input: #121e2b;
 }

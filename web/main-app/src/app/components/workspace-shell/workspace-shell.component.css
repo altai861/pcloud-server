@@ -119,6 +119,11 @@
   object-fit: contain;
 }
 
+.profile-avatar-icon {
+  border-radius: 999px;
+  object-fit: cover;
+}
+
 .theme-toggle {
   width: 38px;
   min-width: 38px;
@@ -231,10 +236,13 @@
 }
 
 :host-context([data-theme='dark']) .header-search img,
-:host-context([data-theme='dark']) .header-actions img,
 :host-context([data-theme='dark']) .new-button img,
 :host-context([data-theme='dark']) .sidebar-nav img,
 :host-context([data-theme='dark']) .sidebar-footer img {
+  filter: invert(1) brightness(1.2);
+}
+
+:host-context([data-theme='dark']) .profile-avatar-icon.default-avatar {
   filter: invert(1) brightness(1.2);
 }
 

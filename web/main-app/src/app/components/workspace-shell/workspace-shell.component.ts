@@ -1,11 +1,13 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Subscription } from 'rxjs';
 
 import { AuthUserDto } from '../../dto/auth-user.dto';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
+import { ProfileImageService } from '../../services/profile-image.service';
 import { ThemeService } from '../../services/theme.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
 
@@ -15,14 +17,18 @@ import { WorkspaceSearchService } from '../../services/workspace-search.service'
   templateUrl: './workspace-shell.component.html',
   styleUrl: './workspace-shell.component.css'
 })
-export class WorkspaceShellComponent implements OnInit {
+export class WorkspaceShellComponent implements OnInit, OnDestroy {
+  private profileImageSub: Subscription | null = null;
+
   currentUser: AuthUserDto | null = null;
+  profileImageSrc: string | null = null;
   searchInput = '';
   isDarkMode = false;
 
   constructor(
     private readonly authApiService: AuthApiService,
     private readonly sessionService: ClientSessionService,
+    private readonly profileImageService: ProfileImageService,
     private readonly themeService: ThemeService,
     private readonly searchService: WorkspaceSearchService,
     private readonly router: Router,
@@ -31,7 +37,16 @@ export class WorkspaceShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.isDarkMode = this.themeService.getCurrentTheme() === 'dark';
+    this.profileImageSub = this.profileImageService.profileImageSrc$.subscribe((src) => {
+      this.profileImageSrc = src;
+      this.cdr.detectChanges();
+    });
     this.loadCurrentUser();
+  }
+
+  ngOnDestroy(): void {
+    this.profileImageSub?.unsubscribe();
+    this.profileImageSub = null;
   }
 
   onSearchChange(value: string): void {
@@ -75,6 +90,7 @@ export class WorkspaceShellComponent implements OnInit {
     const token = this.sessionService.readAccessToken();
 
     if (!token) {
+      this.profileImageService.clear();
       this.router.navigate(['/login']);
       return;
     }
@@ -82,11 +98,28 @@ export class WorkspaceShellComponent implements OnInit {
     this.authApiService.me('', token).subscribe({
       next: (response) => {
         this.currentUser = response.user;
+        if (response.user.profileImageUrl) {
+          this.loadProfileImage(token);
+        } else {
+          this.profileImageService.clear();
+        }
         this.cdr.detectChanges();
       },
       error: () => {
+        this.profileImageService.clear();
         this.sessionService.clearSession();
         this.router.navigate(['/login']);
+      }
+    });
+  }
+
+  private loadProfileImage(token: string): void {
+    this.authApiService.getProfileImage('', token).subscribe({
+      next: (blob) => {
+        this.profileImageService.setFromBlob(blob);
+      },
+      error: () => {
+        this.profileImageService.clear();
       }
     });
   }

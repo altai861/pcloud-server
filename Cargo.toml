@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 argon2 = "0.5"
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 dotenvy = "0.15"
 hex = "0.4"
 mime_guess = "2"

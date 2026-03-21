@@ -4,7 +4,11 @@
 
   <article class="profile-card" *ngIf="!loading && !errorMessage && currentUser">
     <header>
-      <img src="profile.png" alt="Profile" />
+      <img
+        [class.default-avatar]="!profileImageSrc"
+        [src]="profileImageSrc ?? 'profile.png'"
+        alt="Profile"
+      />
       <div>
         <h2>{{ currentUser.fullName }}</h2>
         <p>{{ currentUser.username }}</p>
@@ -25,6 +29,19 @@
         <dd>{{ formatSize(currentUser.storageQuotaBytes) }}</dd>
       </div>
     </dl>
+
+    <section class="upload-section">
+      <label for="profileImageInput">Profile image</label>
+      <input
+        id="profileImageInput"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        [disabled]="uploadingImage"
+        (change)="onProfileImageSelected($event)"
+      />
+      <p class="status error" *ngIf="imageErrorMessage">{{ imageErrorMessage }}</p>
+      <p class="status success" *ngIf="imageSuccessMessage">{{ imageSuccessMessage }}</p>
+    </section>
 
     <button type="button" (click)="signOut()">Sign out</button>
   </article>

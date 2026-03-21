@@ -174,14 +174,12 @@ async fn load_system_storage_settings(pool: &PgPool) -> Result<SystemStorageRow,
 }
 
 async fn load_total_storage_usage(pool: &PgPool) -> Result<i64, ApiError> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users"
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ApiError::internal_with_context(format!(
-        "Failed to load storage usage totals: {e}"
-    )))
+    sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(storage_used_bytes), 0)::BIGINT FROM users")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_context(format!("Failed to load storage usage totals: {e}"))
+        })
 }
 
 fn normalize_relative_path(raw: &str) -> Result<PathBuf, ApiError> {

@@ -6,6 +6,7 @@ import { ClientStatusResponseDto } from '../dto/client-status-response.dto';
 import { LoginRequestDto } from '../dto/login-request.dto';
 import { LoginResponseDto } from '../dto/login-response.dto';
 import { MeResponseDto } from '../dto/me-response.dto';
+import { UpdateProfileImageResponseDto } from '../dto/update-profile-image-response.dto';
 
 @Injectable({
   providedIn: 'root'
@@ -40,6 +41,31 @@ export class AuthApiService {
     return this.http.post<{ message: string }>(
       this.buildUrl(apiBaseUrl, '/api/client/auth/logout'),
       {},
+      { headers: this.authHeaders(accessToken) }
+    );
+  }
+
+  getProfileImage(apiBaseUrl: string, accessToken: string): Observable<Blob> {
+    return this.http.get(
+      this.buildUrl(apiBaseUrl, '/api/client/me/profile-image'),
+      {
+        headers: this.authHeaders(accessToken),
+        responseType: 'blob'
+      }
+    );
+  }
+
+  updateProfileImage(
+    apiBaseUrl: string,
+    accessToken: string,
+    imageFile: File
+  ): Observable<UpdateProfileImageResponseDto> {
+    const formData = new FormData();
+    formData.append('image', imageFile);
+
+    return this.http.post<UpdateProfileImageResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/me/profile-image'),
+      formData,
       { headers: this.authHeaders(accessToken) }
     );
   }

@@ -1,0 +1,1 @@
+docker run -d   --name pcloud-postgres   -e POSTGRES_USER=server   -e POSTGRES_PASSWORD=pcloud   -e POSTGRES_DB=pcloud_db   -p 5432:5432   -v pcloud_pgdata:/var/lib/postgresql/data   postgres:17

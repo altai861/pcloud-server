@@ -19,6 +19,10 @@ pub fn build_client_router(state: AppState) -> Router {
         .route("/api/client/auth/login", post(auth_handlers::login))
         .route("/api/client/auth/logout", post(auth_handlers::logout))
         .route("/api/client/me", get(auth_handlers::me))
+        .route(
+            "/api/client/me/profile-image",
+            get(auth_handlers::profile_image).post(auth_handlers::update_profile_image),
+        )
         .route("/api/client/storage/list", get(storage_handlers::list))
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/", get(client_index_handler))

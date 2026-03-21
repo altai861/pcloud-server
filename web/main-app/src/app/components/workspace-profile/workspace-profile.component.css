@@ -31,6 +31,10 @@
   color: var(--theme-danger);
 }
 
+.status.success {
+  color: var(--theme-ok, #067647);
+}
+
 .profile-card {
   width: min(500px, 100%);
   border: 1px solid var(--line);
@@ -51,7 +55,8 @@
 .profile-card header img {
   width: 54px;
   height: 54px;
-  object-fit: contain;
+  object-fit: cover;
+  border-radius: 999px;
 }
 
 .profile-card h2 {
@@ -100,6 +105,29 @@ button:hover {
   background: color-mix(in srgb, var(--focus) 16%, var(--input));
 }
 
-:host-context([data-theme='dark']) .profile-card header img {
+.upload-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.upload-section label {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.upload-section input[type='file'] {
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  padding: 0.55rem;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+:host-context([data-theme='dark']) .profile-card header img.default-avatar {
   filter: invert(1) brightness(1.2);
 }

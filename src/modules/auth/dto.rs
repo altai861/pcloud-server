@@ -16,6 +16,7 @@ pub struct AuthUserDto {
     pub role: String,
     pub storage_quota_bytes: i64,
     pub storage_used_bytes: i64,
+    pub profile_image_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,4 +38,11 @@ pub struct MeResponse {
 #[serde(rename_all = "camelCase")]
 pub struct LogoutResponse {
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProfileImageResponse {
+    pub message: String,
+    pub user: AuthUserDto,
 }

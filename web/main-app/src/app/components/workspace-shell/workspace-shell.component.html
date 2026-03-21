@@ -27,7 +27,12 @@
         />
       </button>
       <button type="button" title="Profile" (click)="onProfileClick()">
-        <img src="profile.png" alt="Profile" />
+        <img
+          class="profile-avatar-icon"
+          [class.default-avatar]="!profileImageSrc"
+          [src]="profileImageSrc ?? 'profile.png'"
+          alt="Profile"
+        />
       </button>
     </div>
   </header>
