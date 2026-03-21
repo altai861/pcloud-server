@@ -1,0 +1,42 @@
+<main class="client-shell">
+  <header class="logo-card">
+    <h1>PCloud</h1>
+  </header>
+
+  <section class="login-card" *ngIf="checkingStatus">
+    <p>Checking server status...</p>
+  </section>
+
+  <form class="login-card" *ngIf="!checkingStatus" (ngSubmit)="submit()">
+    <label>
+      Username
+      <input
+        name="username"
+        type="text"
+        autocomplete="username"
+        [(ngModel)]="form.username"
+        required
+      />
+    </label>
+
+    <label>
+      Password
+      <input
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        [(ngModel)]="form.password"
+        required
+      />
+    </label>
+
+    <p class="error" *ngIf="loginErrorMessage">{{ loginErrorMessage }}</p>
+    <p class="error" *ngIf="!isInitialized">Initialization is required before users can sign in.</p>
+
+    <footer class="action-panel">
+      <button type="submit" [disabled]="loginSubmitting || !isInitialized">
+        {{ loginSubmitting ? 'Signing in...' : 'Sign in' }}
+      </button>
+    </footer>
+  </form>
+</main>

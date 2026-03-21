@@ -1,0 +1,92 @@
+<section class="storage-content">
+  <section class="path-and-view">
+    <div class="breadcrumbs">
+      <button type="button" *ngFor="let item of breadcrumbs; let isLast = last" [disabled]="isLast"
+        (click)="openPath(item.path)">
+        {{ item.label }}
+      </button>
+    </div>
+
+    <div class="view-toggle">
+      <button type="button" [class.active]="viewMode === 'list'" (click)="setViewMode('list')">
+        <img src="list-view.png" alt="List view" />
+      </button>
+      <button type="button" [class.active]="viewMode === 'grid'" (click)="setViewMode('grid')">
+        <img src="other-view.png" alt="Grid view" />
+      </button>
+    </div>
+
+    <button type="button" class="info-button">
+      <img src="info.png" alt="Information" />
+    </button>
+  </section>
+
+  <section class="filters-row">
+    <button type="button">
+      Type
+      <img src="down-arrow.png" alt="" />
+    </button>
+    <button type="button">
+      People
+      <img src="down-arrow.png" alt="" />
+    </button>
+    <button type="button">
+      Modified
+      <img src="down-arrow.png" alt="" />
+    </button>
+  </section>
+
+  <section class="list-wrap" *ngIf="viewMode === 'list'">
+    <header class="list-header">
+      <span>Name</span>
+      <span>Owner</span>
+      <span>Modified date</span>
+      <span>File size</span>
+      <span class="sort-cell">
+        <img src="sort.png" alt="" />
+        <span>Sort</span>
+      </span>
+    </header>
+
+    <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
+    <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
+    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && entries.length === 0">
+      No items in this folder.
+    </p>
+
+    <div class="list-row" *ngFor="let entry of entries">
+      <button class="name-cell" type="button" (click)="openEntry(entry)">
+        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <span>{{ entry.name }}</span>
+      </button>
+
+      <span class="owner-cell">
+        <img src="profile.png" alt="" />
+        <span>me</span>
+      </span>
+
+      <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
+      <span>{{ formatSize(entry.sizeBytes) }}</span>
+      <button type="button" class="more-cell">
+        <img src="three-vertical-dots.png" alt="More" />
+      </button>
+    </div>
+  </section>
+
+  <section class="grid-wrap" *ngIf="viewMode === 'grid'">
+    <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
+    <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
+    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && entries.length === 0">
+      No items in this folder.
+    </p>
+
+    <article class="grid-item" *ngFor="let entry of entries">
+      <button type="button" class="grid-name" (click)="openEntry(entry)">
+        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <span>{{ entry.name }}</span>
+      </button>
+      <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
+      <span>{{ formatSize(entry.sizeBytes) }}</span>
+    </article>
+  </section>
+</section>

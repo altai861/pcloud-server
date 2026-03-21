@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "ng serve --port 4201 --proxy-config proxy.conf.json",
     "build": "ng build",
     "build:dist": "ng build --output-path ../dist/admin-launch --extract-licenses=false --prerender=false && npm run clean:dist",
     "clean:dist": "bash -c 'd=../dist/admin-launch; if [ -d \"$d/browser\" ]; then find \"$d/browser\" -mindepth 1 -maxdepth 1 -exec mv -t \"$d\" {} +; rm -rf \"$d/browser\"; fi; rm -f \"$d/3rdpartylicenses.txt\" \"$d/prerendered-routes.json\"'",

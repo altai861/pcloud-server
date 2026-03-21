@@ -9,6 +9,7 @@ use serde::Serialize;
 pub enum ApiError {
     BadRequest(String),
     Conflict(String),
+    Unauthorized(String),
     Internal(String),
 }
 
@@ -29,6 +30,7 @@ impl IntoResponse for ApiError {
         let (status, error) = match self {
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
+            ApiError::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
             ApiError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };
 

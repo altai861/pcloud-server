@@ -1271,10 +1271,12 @@ dependencies = [
  "argon2",
  "axum",
  "dotenvy",
+ "hex",
  "mime_guess",
  "rand_core",
  "rust-embed",
  "serde",
+ "sha2",
  "sqlx",
  "tokio",
 ]

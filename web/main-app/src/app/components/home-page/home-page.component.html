@@ -1,0 +1,35 @@
+<section class="home-content">
+  <header class="home-header">
+    <div>
+      <h2>Recent Activity</h2>
+      <p>Files and folders you opened recently.</p>
+    </div>
+
+    <a class="open-storage-link" routerLink="/app/storage">Open Storage</a>
+  </header>
+
+  <section class="recent-list" *ngIf="recentEntries.length > 0; else noRecentItems">
+    <article class="recent-row" *ngFor="let entry of recentEntries">
+      <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+
+      <div class="recent-main">
+        <h3>{{ entry.name }}</h3>
+        <p>{{ entry.path }}</p>
+      </div>
+
+      <div class="recent-meta">
+        <span>{{ entry.entryType === 'folder' ? 'Folder' : 'File' }}</span>
+        <span>Opened {{ formatDate(entry.openedAtUnixMs) }}</span>
+        <span>Modified {{ formatDate(entry.modifiedAtUnixMs) }}</span>
+        <span>Size {{ formatSize(entry.sizeBytes) }}</span>
+      </div>
+    </article>
+  </section>
+
+  <ng-template #noRecentItems>
+    <section class="empty-state">
+      <h3>No Recent Files Yet</h3>
+      <p>Open files or folders from Storage and they will appear here.</p>
+    </section>
+  </ng-template>
+</section>

@@ -1,0 +1,105 @@
+:host {
+  --line: var(--theme-line);
+  --line-strong: var(--theme-line-strong);
+  --text: var(--theme-text);
+  --muted: var(--theme-muted);
+  --surface: var(--theme-surface);
+  --surface-soft: var(--theme-surface-soft);
+  --input: var(--theme-input);
+  --focus: var(--theme-focus);
+
+  display: block;
+  height: 100%;
+  color: var(--text);
+}
+
+.profile-wrap {
+  height: 100%;
+  min-height: 0;
+  padding: 0.9rem;
+  display: grid;
+  place-content: center;
+}
+
+.status {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.status.error {
+  color: var(--theme-danger);
+}
+
+.profile-card {
+  width: min(500px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  box-shadow: var(--theme-shadow);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.86rem;
+}
+
+.profile-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.68rem;
+}
+
+.profile-card header img {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+}
+
+.profile-card h2 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.profile-card p {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+dl {
+  margin: 0;
+  display: grid;
+  gap: 0.56rem;
+}
+
+dt {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+dd {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+button {
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, var(--focus) 44%, var(--line-strong));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--focus) 10%, var(--input));
+  min-height: 36px;
+  padding: 0 0.74rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--focus) 16%, var(--input));
+}
+
+:host-context([data-theme='dark']) .profile-card header img {
+  filter: invert(1) brightness(1.2);
+}

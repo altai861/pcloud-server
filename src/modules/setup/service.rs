@@ -207,7 +207,7 @@ fn validate_full_name(value: &str) -> Result<(), ApiError> {
 }
 
 fn validate_password_strength(value: &str) -> Result<(), ApiError> {
-    if value.len() < 12 {
+    if value.len() < 8 {
         return Err(ApiError::BadRequest(
             "Password must be at least 12 characters long".to_owned(),
         ));

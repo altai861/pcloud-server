@@ -1,1 +1,50 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  color-scheme: light;
+  --theme-bg: #eef2f5;
+  --theme-bg-start: #e5edf4;
+  --theme-bg-end: #e8eff5;
+  --theme-surface: #ffffff;
+  --theme-surface-soft: #f4f8fb;
+  --theme-line: #d4dde7;
+  --theme-line-strong: #becad8;
+  --theme-text: #1a2230;
+  --theme-muted: #5d6b7f;
+  --theme-focus: #1fdac3;
+  --theme-danger: #b42318;
+  --theme-ok: #067647;
+  --theme-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --theme-input: #ffffff;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --theme-bg: #0f1722;
+  --theme-bg-start: #1a2636;
+  --theme-bg-end: #111e2c;
+  --theme-surface: #162230;
+  --theme-surface-soft: #1a2a3b;
+  --theme-line: #304458;
+  --theme-line-strong: #3d546d;
+  --theme-text: #e5edf6;
+  --theme-muted: #a6b7cb;
+  --theme-focus: #1fdac3;
+  --theme-danger: #ff8f85;
+  --theme-ok: #4ecb99;
+  --theme-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
+  --theme-input: #121e2b;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--theme-bg);
+  color: var(--theme-text);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

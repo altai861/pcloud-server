@@ -1,6 +1,9 @@
 use crate::{
     app_state::AppState,
-    modules::{setup::handlers as setup_handlers, system::handlers as system_handlers},
+    modules::{
+        auth::handlers as auth_handlers, setup::handlers as setup_handlers,
+        storage::handlers as storage_handlers, system::handlers as system_handlers,
+    },
     web::static_files::{serve_admin_static, serve_client_static},
 };
 use axum::{
@@ -13,6 +16,10 @@ use axum::{
 pub fn build_client_router(state: AppState) -> Router {
     Router::new()
         .route("/api/client/status", get(system_handlers::server_status))
+        .route("/api/client/auth/login", post(auth_handlers::login))
+        .route("/api/client/auth/logout", post(auth_handlers::logout))
+        .route("/api/client/me", get(auth_handlers::me))
+        .route("/api/client/storage/list", get(storage_handlers::list))
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/", get(client_index_handler))
         .route("/*file", get(client_static_handler))

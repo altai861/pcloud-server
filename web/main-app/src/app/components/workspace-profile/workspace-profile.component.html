@@ -1,0 +1,31 @@
+<section class="profile-wrap">
+  <p class="status" *ngIf="loading">Loading profile...</p>
+  <p class="status error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
+
+  <article class="profile-card" *ngIf="!loading && !errorMessage && currentUser">
+    <header>
+      <img src="profile.png" alt="Profile" />
+      <div>
+        <h2>{{ currentUser.fullName }}</h2>
+        <p>{{ currentUser.username }}</p>
+      </div>
+    </header>
+
+    <dl>
+      <div>
+        <dt>Role</dt>
+        <dd>{{ currentUser.role }}</dd>
+      </div>
+      <div>
+        <dt>Storage used</dt>
+        <dd>{{ formatSize(currentUser.storageUsedBytes) }}</dd>
+      </div>
+      <div>
+        <dt>Storage quota</dt>
+        <dd>{{ formatSize(currentUser.storageQuotaBytes) }}</dd>
+      </div>
+    </dl>
+
+    <button type="button" (click)="signOut()">Sign out</button>
+  </article>
+</section>

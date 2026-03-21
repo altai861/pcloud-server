@@ -1,0 +1,84 @@
+<main class="workspace-page">
+  <header class="workspace-header">
+    <a class="logo" routerLink="/app/home">PCloud</a>
+
+    <label class="header-search">
+      <img src="search.png" alt="" />
+      <input
+        type="text"
+        [ngModel]="searchInput"
+        (ngModelChange)="onSearchChange($event)"
+        placeholder="Search in Storage"
+      />
+    </label>
+
+    <div class="header-actions">
+      <button
+        type="button"
+        class="theme-toggle"
+        [attr.aria-label]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+        [title]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+        (click)="toggleTheme()"
+      >
+        <img
+          class="theme-toggle-icon"
+          [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
+          [alt]="isDarkMode ? 'Light mode icon' : 'Dark mode icon'"
+        />
+      </button>
+      <button type="button" title="Profile" (click)="onProfileClick()">
+        <img src="profile.png" alt="Profile" />
+      </button>
+    </div>
+  </header>
+
+  <section class="workspace-body">
+    <aside class="workspace-sidebar">
+      <button class="new-button" type="button">
+        <img src="plus.png" alt="" />
+        <span>New</span>
+      </button>
+
+      <nav class="sidebar-nav">
+        <a routerLink="/app/storage" routerLinkActive="active">
+          <img src="storage.png" alt="" />
+          <span>Storage</span>
+        </a>
+        <a routerLink="/app/home" routerLinkActive="active">
+          <img src="home.png" alt="" />
+          <span>Home</span>
+        </a>
+        <a routerLink="/app/starred" routerLinkActive="active">
+          <img src="starred.png" alt="" />
+          <span>Starred</span>
+        </a>
+        <a routerLink="/app/shared" routerLinkActive="active">
+          <img src="shared.png" alt="" />
+          <span>Shared</span>
+        </a>
+        <a routerLink="/app/admin" routerLinkActive="active">
+          <img src="admin.png" alt="" />
+          <span>Admin</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <a routerLink="/app/trash" routerLinkActive="active">
+          <img src="trash.png" alt="" />
+          <span>Trash</span>
+        </a>
+
+        <section class="usage-card">
+          <p>
+            {{ formatSize(currentUser?.storageUsedBytes ?? null) }} of
+            {{ formatSize(currentUser?.storageQuotaBytes ?? null) }} used
+          </p>
+        </section>
+      </div>
+    </aside>
+
+    <section class="workspace-content">
+      <router-outlet></router-outlet>
+    </section>
+  </section>
+</main>

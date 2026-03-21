@@ -1,0 +1,27 @@
+:host {
+  display: block;
+  height: 100%;
+  color: var(--theme-text);
+}
+
+.page-wrap {
+  height: 100%;
+  min-height: 0;
+  padding: 1rem;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.45rem;
+  color: var(--theme-text);
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--theme-muted);
+}
