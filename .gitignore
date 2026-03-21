@@ -1,1 +1,6 @@
 target
+web/admin-launch/node_modules
+web/admin-launch/.angular
+web/main-app/node_modules
+web/main-app/.angular
+.npm-cache

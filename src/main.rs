@@ -1,62 +1,40 @@
-mod api {
-    pub mod client;
-    pub mod admin;
-}
+mod app_state;
+mod config;
+mod db;
+mod error;
+mod http;
+mod modules;
+mod web;
 
-mod web {
-    pub mod static_files;
-}
-
-mod network {
-    pub mod mdns;
-}
-
-use axum::{
-    response::Response,
-    routing::get,
-    Router,
-};
-use web::static_files::serve_static;
-use network::mdns::start_mdns_service;
+use crate::app_state::AppState;
+use crate::config::Config;
+use crate::db::{connect_pool, run_migrations};
+use crate::http::router::{build_admin_router, build_client_router};
 
 #[tokio::main]
-async fn main() {
-    let _mdns = start_mdns_service(8080);
+async fn main() -> anyhow::Result<()> {
+    let config = Config::from_env()?;
+    let pool = connect_pool(&config.database_url).await?;
+    run_migrations(&pool).await?;
 
-    let client_app = Router::new()
-        .route("/api/client/status", get(api::client::server_status));
+    let state = AppState::new(pool);
 
-    let admin_app = Router::new()
-        .route("/api/admin/pairings", get(api::admin::list_pairings))
-        .route("/", get(index_handler))
-        .route("/*file", get(handler));
+    let client_app = build_client_router(state.clone());
+    let admin_app = build_admin_router(state);
 
-    let client_listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
-        .await
-        .unwrap();
+    let client_listener = tokio::net::TcpListener::bind(config.client_bind).await?;
+    let admin_listener = tokio::net::TcpListener::bind(config.admin_bind).await?;
 
-    let admin_listener = tokio::net::TcpListener::bind("127.0.0.1:9090")
-        .await
-        .unwrap();
-
-    println!("Client API running on http://0.0.0.0:8080");
-    println!("Admin UI running on http://127.0.0.1:9090");
+    println!("Client API + Web App: http://{}", config.client_bind);
+    println!("Admin Setup API + Web App: http://{}", config.admin_bind);
 
     let client_server = axum::serve(client_listener, client_app);
     let admin_server = axum::serve(admin_listener, admin_app);
 
     let (client_result, admin_result) = tokio::join!(client_server, admin_server);
 
-    client_result.unwrap();
-    admin_result.unwrap();
-}
+    client_result?;
+    admin_result?;
 
-async fn index_handler() -> Response {
-    serve_static("index.html".to_string()).await
-}
-
-async fn handler(uri: axum::http::Uri) -> Response {
-    println!("{}", uri.path());
-    let path = uri.path().trim_start_matches('/').to_string();
-    serve_static(path).await
+    Ok(())
 }
