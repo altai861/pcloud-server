@@ -1,7 +1,8 @@
-import { HttpClient, HttpEvent, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpEvent, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { SearchResourcesResponseDto } from '../dto/search-resources-response.dto';
 import { ShareMutationResponseDto } from '../dto/share-mutation-response.dto';
 import { ShareableUsersResponseDto } from '../dto/shareable-users-response.dto';
 import { SharedPermissionsResponseDto } from '../dto/shared-permissions-response.dto';
@@ -19,12 +20,45 @@ import { StorageRestoreResponseDto } from '../dto/storage-restore-response.dto';
 export class StorageApiService {
   constructor(private readonly http: HttpClient) {}
 
+  searchResources(
+    apiBaseUrl: string,
+    accessToken: string,
+    query: string,
+    limit: number | null = null,
+    cursor: string | null = null
+  ): Observable<SearchResourcesResponseDto> {
+    let params = new HttpParams();
+    const normalizedQuery = query.trim();
+
+    if (normalizedQuery.length > 0) {
+      params = params.set('q', normalizedQuery);
+    }
+
+    if (limit !== null && Number.isFinite(limit)) {
+      params = params.set('limit', String(Math.trunc(limit)));
+    }
+
+    if (cursor !== null && cursor.trim().length > 0) {
+      params = params.set('cursor', cursor.trim());
+    }
+
+    return this.http.get<SearchResourcesResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/search'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
   list(
     apiBaseUrl: string,
     accessToken: string,
     path: string,
     search: string,
-    folderId: number | null = null
+    folderId: number | null = null,
+    limit: number | null = null,
+    cursor: string | null = null
   ): Observable<StorageListResponseDto> {
     let params = new HttpParams();
 
@@ -38,6 +72,14 @@ export class StorageApiService {
 
     if (folderId !== null && Number.isFinite(folderId)) {
       params = params.set('folderId', String(Math.trunc(folderId)));
+    }
+
+    if (limit !== null && Number.isFinite(limit)) {
+      params = params.set('limit', String(Math.trunc(limit)));
+    }
+
+    if (cursor !== null && cursor.trim().length > 0) {
+      params = params.set('cursor', cursor.trim());
     }
 
     return this.http.get<StorageListResponseDto>(
@@ -397,6 +439,29 @@ export class StorageApiService {
     params.set('accessToken', accessToken.trim());
 
     return `${this.buildUrl(apiBaseUrl, '/api/client/storage/files/download')}?${params.toString()}`;
+  }
+
+  downloadBatch(
+    apiBaseUrl: string,
+    accessToken: string,
+    items: Array<{ entryType: 'folder' | 'file'; resourceId: number }>
+  ): Observable<HttpResponse<Blob>> {
+    const normalizedItems = items
+      .filter((item) => Number.isFinite(item.resourceId) && item.resourceId > 0)
+      .map((item) => ({
+        entryType: item.entryType,
+        resourceId: Math.trunc(item.resourceId)
+      }));
+
+    return this.http.post(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/downloads/batch'),
+      { items: normalizedItems },
+      {
+        headers: this.authHeaders(accessToken),
+        observe: 'response',
+        responseType: 'blob'
+      }
+    );
   }
 
   buildUserProfileImageUrl(

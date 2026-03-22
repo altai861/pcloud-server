@@ -9,6 +9,8 @@ pub struct StorageEntryDto {
     pub entry_type: String,
     pub owner_user_id: i64,
     pub owner_username: String,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
     pub is_starred: bool,
     pub size_bytes: Option<i64>,
     pub modified_at_unix_ms: Option<i64>,
@@ -23,6 +25,8 @@ pub struct StorageListResponse {
     pub parent_path: Option<String>,
     pub current_privilege: String,
     pub entries: Vec<StorageEntryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
     pub total_storage_limit_bytes: Option<i64>,
     pub total_storage_used_bytes: i64,
     pub user_storage_quota_bytes: i64,
@@ -95,6 +99,8 @@ pub struct SharedResourceEntryDto {
     pub path: String,
     pub owner_user_id: i64,
     pub owner_username: String,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
     pub privilege_type: String,
     pub date_shared_unix_ms: i64,
 }
@@ -103,6 +109,33 @@ pub struct SharedResourceEntryDto {
 #[serde(rename_all = "camelCase")]
 pub struct SharedResourcesListResponse {
     pub entries: Vec<SharedResourceEntryDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResourceEntryDto {
+    pub resource_type: String,
+    pub resource_id: i64,
+    pub name: String,
+    pub path: String,
+    pub owner_user_id: i64,
+    pub owner_username: String,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
+    pub source_context: String,
+    pub privilege_type: String,
+    pub navigate_folder_id: i64,
+    pub size_bytes: Option<i64>,
+    pub modified_at_unix_ms: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResourcesResponse {
+    pub query: String,
+    pub entries: Vec<SearchResourceEntryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Serialize)]

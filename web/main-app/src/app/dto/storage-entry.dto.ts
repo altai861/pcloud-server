@@ -5,6 +5,8 @@ export interface StorageEntryDto {
   entryType: 'folder' | 'file';
   ownerUserId: number;
   ownerUsername: string;
+  createdByUserId: number | null;
+  createdByUsername: string;
   isStarred: boolean;
   sizeBytes: number | null;
   modifiedAtUnixMs: number | null;

@@ -5,6 +5,8 @@ export interface SharedResourceEntryDto {
   path: string;
   ownerUserId: number;
   ownerUsername: string;
+  createdByUserId: number | null;
+  createdByUsername: string;
   privilegeType: 'viewer' | 'editor';
   dateSharedUnixMs: number;
 }

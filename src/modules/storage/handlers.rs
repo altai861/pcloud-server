@@ -7,16 +7,15 @@ use crate::{
             dto::{
                 ShareMutationResponse, ShareableUserDto, ShareableUsersResponse,
                 SharedPermissionTargetDto, SharedPermissionsResponse, SharedResourceEntryDto,
-                SharedResourcesListResponse, StorageDeleteResponse, StorageFileMetadataResponse,
-                StorageFolderMetadataResponse, StorageListResponse, StorageMutationResponse,
-                StorageRestoreResponse,
+                SharedResourcesListResponse, SearchResourceEntryDto, SearchResourcesResponse,
+                StorageDeleteResponse, StorageFileMetadataResponse, StorageFolderMetadataResponse,
+                StorageListResponse, StorageMutationResponse, StorageRestoreResponse,
             },
             service::{
-                self as storage_service, CreateFolderInput, DownloadFileQuery,
-                RemoveSharePermissionInput, RenameStorageInput, SetStarredInput,
-                SharePermissionInput, SharePermissionsQuery, StorageEntryKind,
-                StorageFileMetadataResult, StorageFolderMetadataResult, StorageListQuery,
-                UploadFileInput,
+                self as storage_service, BatchDownloadItemInput, CreateFolderInput,
+                DownloadFileQuery, RemoveSharePermissionInput, RenameStorageInput, SetStarredInput,
+                SharePermissionInput, SharePermissionsQuery, StorageEntryKind, StorageFileMetadataResult,
+                StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
             },
         },
     },
@@ -31,6 +30,7 @@ use axum::{
     },
     response::Response,
 };
+use futures_util::StreamExt;
 use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -50,6 +50,16 @@ pub struct ListStorageRequest {
     pub path: Option<String>,
     pub folder_id: Option<i64>,
     pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResourcesRequest {
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +89,19 @@ pub struct DownloadFileRequest {
     pub path: Option<String>,
     pub file_id: Option<i64>,
     pub access_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDownloadRequest {
+    pub items: Vec<BatchDownloadItemRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDownloadItemRequest {
+    pub entry_type: String,
+    pub resource_id: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +170,8 @@ pub async fn list(
             path: query.path,
             folder_id: query.folder_id,
             search: query.q,
+            limit: query.limit,
+            cursor: query.cursor,
         },
     )
     .await?;
@@ -158,10 +183,53 @@ pub async fn list(
         parent_path: result.parent_path,
         current_privilege: result.current_privilege,
         entries: result.entries,
+        next_cursor: result.next_cursor,
+        has_more: result.has_more,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
         user_storage_quota_bytes: result.user_storage_quota_bytes,
         user_storage_used_bytes: result.user_storage_used_bytes,
+    }))
+}
+
+pub async fn search_resources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<SearchResourcesRequest>,
+) -> ApiResult<Json<SearchResourcesResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let payload = storage_service::search_resources(
+        &state.pool,
+        &current_user,
+        query.q,
+        query.limit,
+        query.cursor,
+    )
+    .await?;
+
+    Ok(Json(SearchResourcesResponse {
+        query: payload.query,
+        entries: payload
+            .entries
+            .into_iter()
+            .map(|entry| SearchResourceEntryDto {
+                resource_type: entry.resource_type,
+                resource_id: entry.resource_id,
+                name: entry.name,
+                path: entry.path,
+                owner_user_id: entry.owner_user_id,
+                owner_username: entry.owner_username,
+                created_by_user_id: entry.created_by_user_id,
+                created_by_username: entry.created_by_username,
+                source_context: entry.source_context,
+                privilege_type: entry.privilege_type,
+                navigate_folder_id: entry.navigate_folder_id,
+                size_bytes: entry.size_bytes,
+                modified_at_unix_ms: entry.modified_at_unix_ms,
+            })
+            .collect(),
+        next_cursor: payload.next_cursor,
+        has_more: payload.has_more,
     }))
 }
 
@@ -179,6 +247,8 @@ pub async fn list_trash(
             path: None,
             folder_id: None,
             search: query.q,
+            limit: query.limit,
+            cursor: query.cursor,
         },
     )
     .await?;
@@ -190,6 +260,8 @@ pub async fn list_trash(
         parent_path: result.parent_path,
         current_privilege: result.current_privilege,
         entries: result.entries,
+        next_cursor: result.next_cursor,
+        has_more: result.has_more,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
         user_storage_quota_bytes: result.user_storage_quota_bytes,
@@ -211,6 +283,8 @@ pub async fn list_starred(
             path: None,
             folder_id: None,
             search: query.q,
+            limit: query.limit,
+            cursor: query.cursor,
         },
     )
     .await?;
@@ -222,6 +296,8 @@ pub async fn list_starred(
         parent_path: result.parent_path,
         current_privilege: result.current_privilege,
         entries: result.entries,
+        next_cursor: result.next_cursor,
+        has_more: result.has_more,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
         user_storage_quota_bytes: result.user_storage_quota_bytes,
@@ -524,6 +600,53 @@ pub async fn download_file(
         })
 }
 
+pub async fn download_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<BatchDownloadRequest>,
+) -> ApiResult<Response> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let mut items = Vec::with_capacity(payload.items.len());
+    for item in payload.items {
+        items.push(BatchDownloadItemInput {
+            resource_type: parse_entry_type(&item.entry_type)?,
+            resource_id: item.resource_id,
+        });
+    }
+
+    let archive = storage_service::build_batch_download_archive(&state.pool, &current_user, items).await?;
+
+    let file_handle = File::open(&archive.archive_path).await.map_err(|_| {
+        crate::error::ApiError::internal_with_context("Failed to open batch archive for download")
+    })?;
+
+    let cleanup_guard = TempArchiveCleanupGuard::new(archive.archive_path.clone());
+    let stream = ReaderStream::new(file_handle).map(move |chunk| {
+        let _keep_guard_alive = &cleanup_guard;
+        chunk
+    });
+    let body = Body::from_stream(stream);
+
+    let file_name_escaped = archive
+        .archive_name
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let content_disposition = format!("attachment; filename=\"{file_name_escaped}\"");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/zip")
+        .header(CONTENT_DISPOSITION, content_disposition)
+        .header(CONTENT_LENGTH, archive.archive_size_bytes.to_string())
+        .body(body)
+        .map_err(|_| {
+            crate::error::ApiError::internal_with_context(
+                "Failed to build batch download response",
+            )
+        })
+}
+
 pub async fn upload_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -666,6 +789,8 @@ pub async fn list_shared(
                 path: entry.path,
                 owner_user_id: entry.owner_user_id,
                 owner_username: entry.owner_username,
+                created_by_user_id: entry.created_by_user_id,
+                created_by_username: entry.created_by_username,
                 privilege_type: entry.privilege_type,
                 date_shared_unix_ms: entry.date_shared_unix_ms,
             })
@@ -852,5 +977,21 @@ fn parse_entry_type(raw: &str) -> Result<StorageEntryKind, crate::error::ApiErro
         _ => Err(crate::error::ApiError::BadRequest(
             "entryType must be either 'folder' or 'file'".to_owned(),
         )),
+    }
+}
+
+struct TempArchiveCleanupGuard {
+    path: PathBuf,
+}
+
+impl TempArchiveCleanupGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for TempArchiveCleanupGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }

@@ -8,17 +8,65 @@
     </div>
 
     <div class="quick-filters">
-      <button type="button">
-        Type
-        <img src="down-arrow.png" alt="" />
-      </button>
-      <button type="button">
-        People
-        <img src="down-arrow.png" alt="" />
-      </button>
-      <button type="button">
-        Modified
-        <img src="down-arrow.png" alt="" />
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('type', $event)">
+          {{ typeFilterLabel }}
+          <img src="down-dot.png" alt="" />
+        </button>
+
+        <section class="filter-menu" *ngIf="activeFilterMenu === 'type'" (click)="$event.stopPropagation()"
+          (contextmenu)="$event.preventDefault()">
+          <button type="button" class="filter-option" *ngFor="let option of typeFilterOptions"
+            [class.active]="typeFilter === option.value" (click)="setTypeFilter(option.value)">
+            {{ option.label }}
+          </button>
+        </section>
+      </div>
+
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('people', $event)">
+          People
+          <span class="filter-count" *ngIf="selectedPeopleUserIds.size > 0">{{ selectedPeopleUserIds.size }}</span>
+          <img src="down-dot.png" alt="" />
+        </button>
+
+        <section class="filter-menu people-menu" *ngIf="activeFilterMenu === 'people'"
+          (click)="$event.stopPropagation()" (contextmenu)="$event.preventDefault()">
+          <label class="people-search-label">
+            <input type="text" [value]="peopleSearchTerm" (input)="peopleSearchTerm = $any($event.target).value"
+              placeholder="Search people" />
+          </label>
+
+          <button type="button" class="filter-option" *ngFor="let person of peopleFilterOptions"
+            [class.active]="isPeopleSelected(person.userId)" (click)="togglePeopleSelection(person.userId)">
+            {{ person.username }}
+          </button>
+
+          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">No matching users</p>
+
+          <div class="people-actions">
+            <button type="button" class="subtle" (click)="clearPeopleSelection()">Clear</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('modified', $event)">
+          {{ modifiedFilterLabel }}
+          <img src="down-dot.png" alt="" />
+        </button>
+
+        <section class="filter-menu" *ngIf="activeFilterMenu === 'modified'" (click)="$event.stopPropagation()"
+          (contextmenu)="$event.preventDefault()">
+          <button type="button" class="filter-option" *ngFor="let option of modifiedFilterOptions"
+            [class.active]="modifiedFilter === option.value" (click)="setModifiedFilter(option.value)">
+            {{ option.label }}
+          </button>
+        </section>
+      </div>
+
+      <button type="button" class="clear-filters-inline" *ngIf="hasActiveFilters" (click)="clearAllFilters()">
+        Clear
       </button>
     </div>
 
@@ -46,11 +94,8 @@
     </div>
 
     <div class="upload-progress-track">
-      <div
-        *ngIf="uploadProgressPercent !== null; else indeterminateFill"
-        class="upload-progress-fill determinate"
-        [style.width.%]="uploadProgressPercent"
-      ></div>
+      <div *ngIf="uploadProgressPercent !== null; else indeterminateFill" class="upload-progress-fill determinate"
+        [style.width.%]="uploadProgressPercent"></div>
       <ng-template #indeterminateFill>
         <div class="upload-progress-fill indeterminate"></div>
       </ng-template>
@@ -60,50 +105,61 @@
   <section class="list-wrap" *ngIf="viewMode === 'list'">
     <header class="list-header">
       <span>Name</span>
-      <span>Owner</span>
-      <span>Modified date</span>
-      <span>File size</span>
+      <span>Owner / Created by</span>
+      <button type="button" class="column-sort-button" [class.active]="activeSortField === 'modified'"
+        [attr.aria-label]="modifiedSortOrder === 'asc' ? 'Sort by modified date ascending' : 'Sort by modified date descending'"
+        (click)="toggleModifiedSortOrder()">
+        <span>Modified date</span>
+        <img class="order-icon" [src]="modifiedSortOrder === 'asc' ? 'up-arrow.png' : 'down-arrow.png'" alt="" />
+      </button>
+      <button type="button" class="column-sort-button" [class.active]="activeSortField === 'size'"
+        [attr.aria-label]="sizeSortOrder === 'asc' ? 'Sort by file size ascending' : 'Sort by file size descending'"
+        (click)="toggleSizeSortOrder()">
+        <span>File size</span>
+        <img class="order-icon" [src]="sizeSortOrder === 'asc' ? 'up-arrow.png' : 'down-arrow.png'" alt="" />
+      </button>
       <span class="star-cell-header" aria-hidden="true"></span>
-      <span class="sort-cell">
+      <button type="button" class="sort-cell sort-toggle" [class.active]="activeSortField === 'name'"
+        [attr.aria-label]="nameSortOrder === 'asc' ? 'Sort by name ascending' : 'Sort by name descending'"
+        (click)="toggleSortOrder()">
         <img src="sort.png" alt="" />
-        <span>Sort</span>
-      </span>
+        <span>{{ sortLabel }}</span>
+      </button>
     </header>
 
     <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
     <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
-    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && entries.length === 0">
-      No items in this folder.
+    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && displayEntries.length === 0">
+      {{ entries.length === 0 ? 'No items in this folder.' : 'No items match the selected filters.' }}
     </p>
 
-    <div class="list-row" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
-      <button class="name-cell" type="button" (click)="openEntry(entry)" (dblclick)="onEntryDoubleClick(entry)">
+    <div class="list-row" *ngFor="let entry of displayEntries" [class.selected]="isEntrySelected(entry)"
+      (click)="onEntryRowClick($event, entry)" (dblclick)="onEntryDoubleClick(entry)"
+      (contextmenu)="openEntryContextMenu($event, entry)">
+      <button class="name-cell" type="button">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </button>
 
       <span class="owner-cell">
-        <img
-          class="owner-avatar"
-          [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
-          [src]="ownerAvatarSrc(entry.ownerUserId)"
-          (error)="onOwnerAvatarError($event, entry.ownerUserId)"
-          alt=""
-        />
-        <span>{{ entry.ownerUsername }}</span>
+        <span class="user-pill">
+          <img class="owner-avatar" [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
+            [src]="ownerAvatarSrc(entry.ownerUserId)" (error)="onOwnerAvatarError($event, entry.ownerUserId)" alt="" />
+          <span>Owner: {{ entry.ownerUsername }}</span>
+        </span>
+        <span class="user-pill">
+          <img class="owner-avatar" [class.default-avatar]="isDefaultOwnerAvatar(entry.createdByUserId)"
+            [src]="ownerAvatarSrc(entry.createdByUserId)" (error)="onOwnerAvatarError($event, entry.createdByUserId)"
+            alt="" />
+          <span>Created: {{ entry.createdByUsername }}</span>
+        </span>
       </span>
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
-      <button
-        *ngIf="currentPrivilege === 'owner'; else sharedStarPlaceholder"
-        type="button"
-        class="star-cell"
-        [class.active]="entry.isStarred"
-        [attr.aria-label]="entry.isStarred ? 'Remove star' : 'Add star'"
-        [title]="entry.isStarred ? 'Remove star' : 'Add star'"
-        (click)="onStarClick($event, entry)"
-      >
+      <button *ngIf="currentPrivilege === 'owner'; else sharedStarPlaceholder" type="button" class="star-cell"
+        [class.active]="entry.isStarred" [attr.aria-label]="entry.isStarred ? 'Remove star' : 'Add star'"
+        [title]="entry.isStarred ? 'Remove star' : 'Add star'" (click)="onStarClick($event, entry)">
         <img [src]="entry.isStarred ? 'star-filled.png' : 'starred.png'" alt="" />
       </button>
       <ng-template #sharedStarPlaceholder>
@@ -113,16 +169,22 @@
         <img src="three-vertical-dots.png" alt="More" />
       </button>
     </div>
+
+    <div class="pagination-controls" *ngIf="!storageLoading && !storageErrorMessage && entries.length > 0">
+      <button type="button" *ngIf="hasMoreEntries" [disabled]="isLoadingMore" (click)="loadMoreEntries()">
+        {{ isLoadingMore ? 'Loading more...' : 'Load more' }}
+      </button>
+    </div>
   </section>
 
   <section class="grid-wrap" *ngIf="viewMode === 'grid'">
     <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
     <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
-    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && entries.length === 0">
-      No items in this folder.
+    <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && displayEntries.length === 0">
+      {{ entries.length === 0 ? 'No items in this folder.' : 'No items match the selected filters.' }}
     </p>
 
-    <article class="grid-item" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
+    <article class="grid-item" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button type="button" class="grid-name" (click)="openEntry(entry)" (dblclick)="onEntryDoubleClick(entry)">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
@@ -130,28 +192,35 @@
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
     </article>
+
+    <div class="pagination-controls" *ngIf="!storageLoading && !storageErrorMessage && entries.length > 0">
+      <button type="button" *ngIf="hasMoreEntries" [disabled]="isLoadingMore" (click)="loadMoreEntries()">
+        {{ isLoadingMore ? 'Loading more...' : 'Load more' }}
+      </button>
+    </div>
   </section>
 </section>
 
-<section
-  class="entry-context-menu"
-  *ngIf="isEntryMenuOpen"
-  [style.left.px]="entryMenuX"
-  [style.top.px]="entryMenuY"
-  (click)="$event.stopPropagation()"
-  (contextmenu)="$event.preventDefault()"
->
-  <button type="button" (click)="onRenameEntryClick($event)" [disabled]="isEntryRenameDisabled">
+<aside class="selection-indicator" *ngIf="selectedEntriesCount > 0">
+  {{ selectedEntriesCount }} selected
+</aside>
+
+<section class="entry-context-menu" *ngIf="isEntryMenuOpen" [style.left.px]="entryMenuX" [style.top.px]="entryMenuY"
+  (click)="$event.stopPropagation()" (contextmenu)="$event.preventDefault()">
+  <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onRenameEntryClick($event)"
+    [disabled]="isEntryRenameDisabled">
     Rename
   </button>
-  <button type="button" (click)="onShareEntryClick($event)" [disabled]="isEntryShareDisabled">
+  <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onShareEntryClick($event)"
+    [disabled]="isEntryShareDisabled">
     Share
   </button>
   <button type="button" (click)="onDownloadEntryClick($event)" [disabled]="isEntryDownloadDisabled">
-    Download
+    {{ entryDownloadLabel }}
   </button>
   <button type="button" class="danger" (click)="onDeleteEntryClick($event)" [disabled]="isEntryEditDisabled">
-    Move to Trash
+    {{ isEntryMenuForMultiSelection ? (isBulkTrashInProgress ? 'Moving...' : 'Move selected to Trash') : 'Move to Trash'
+    }}
   </button>
 </section>
 
@@ -164,13 +233,8 @@
 
     <label class="rename-field">
       <span>New name</span>
-      <input
-        type="text"
-        [value]="renameValue"
-        (input)="renameValue = $any($event.target).value"
-        [disabled]="renameSubmitting"
-        maxlength="255"
-      />
+      <input type="text" [value]="renameValue" (input)="renameValue = $any($event.target).value"
+        [disabled]="renameSubmitting" maxlength="255" />
     </label>
 
     <p class="status-text error" *ngIf="renameErrorMessage">{{ renameErrorMessage }}</p>
@@ -202,16 +266,14 @@
           <span>{{ target.fullName }}</span>
         </div>
 
-        <select
-          [value]="target.privilegeType"
-          [disabled]="shareMutationLoading"
-          (change)="updateSharePermission(target, $any($event.target).value)"
-        >
+        <select [value]="target.privilegeType" [disabled]="shareMutationLoading"
+          (change)="updateSharePermission(target, $any($event.target).value)">
           <option value="viewer">Viewer</option>
           <option value="editor">Editor</option>
         </select>
 
-        <button type="button" class="danger subtle" [disabled]="shareMutationLoading" (click)="removeShareTarget(target)">
+        <button type="button" class="danger subtle" [disabled]="shareMutationLoading"
+          (click)="removeShareTarget(target)">
           Remove
         </button>
       </article>
@@ -220,13 +282,8 @@
     <section class="share-add">
       <label>
         <span>Search user</span>
-        <input
-          type="text"
-          [value]="shareUserSearchTerm"
-          [disabled]="shareMutationLoading || shareUsersLoading"
-          (input)="shareUserSearchTerm = $any($event.target).value"
-          placeholder="Username or full name"
-        />
+        <input type="text" [value]="shareUserSearchTerm" [disabled]="shareMutationLoading || shareUsersLoading"
+          (input)="shareUserSearchTerm = $any($event.target).value" placeholder="Username or full name" />
       </label>
 
       <div class="share-add-actions">
@@ -241,19 +298,16 @@
       </div>
 
       <section class="share-search-results" *ngIf="shareUsers.length > 0">
-        <button
-          type="button"
-          *ngFor="let user of shareUsers"
-          [class.active]="selectedShareUserId === user.userId"
-          (click)="selectShareUser(user)"
-        >
+        <button type="button" *ngFor="let user of shareUsers" [class.active]="selectedShareUserId === user.userId"
+          (click)="selectShareUser(user)">
           <strong>{{ user.username }}</strong>
           <span>{{ user.fullName }}</span>
         </button>
       </section>
 
       <footer class="share-footer">
-        <button type="button" class="primary" [disabled]="selectedShareUserId === null || shareMutationLoading" (click)="grantSharePermission()">
+        <button type="button" class="primary" [disabled]="selectedShareUserId === null || shareMutationLoading"
+          (click)="grantSharePermission()">
           {{ shareMutationLoading ? 'Saving...' : 'Grant Permission' }}
         </button>
       </footer>
@@ -262,13 +316,8 @@
 </section>
 
 <section class="folder-metadata-overlay" *ngIf="isFolderMetadataOpen" (click)="closeFolderMetadata()">
-  <article
-    class="folder-metadata-modal"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="folder-metadata-title"
-    (click)="$event.stopPropagation()"
-  >
+  <article class="folder-metadata-modal" role="dialog" aria-modal="true" aria-labelledby="folder-metadata-title"
+    (click)="$event.stopPropagation()">
     <header class="folder-metadata-header">
       <h2 id="folder-metadata-title">Folder metadata</h2>
       <button type="button" class="folder-metadata-close" (click)="closeFolderMetadata()">Close</button>

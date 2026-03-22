@@ -133,8 +133,8 @@ pub async fn create_user(
 
     let root_folder_id = sqlx::query_scalar::<_, i64>(
         r#"
-        INSERT INTO folders (owner_user_id, parent_folder_id, name, path, is_deleted)
-        VALUES ($1, NULL, '/', '/', false)
+        INSERT INTO folders (owner_user_id, created_by_user_id, parent_folder_id, name, path, is_deleted)
+        VALUES ($1, $1, NULL, '/', '/', false)
         RETURNING id
         "#,
     )

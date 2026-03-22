@@ -17,8 +17,8 @@
   height: 100%;
   min-height: 0;
   padding: 0.75rem;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 0.68rem;
 }
 
@@ -43,6 +43,8 @@
 }
 
 .list-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
@@ -80,6 +82,11 @@
 
 .list-row:hover {
   background: color-mix(in srgb, var(--focus) 6%, var(--panel));
+}
+
+.list-row.selected {
+  background: color-mix(in srgb, var(--focus) 13%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 45%, var(--line));
 }
 
 .name-cell {
@@ -175,6 +182,22 @@
 .entry-context-menu button.danger:hover {
   border-color: color-mix(in srgb, var(--theme-danger, #c61e1e) 58%, var(--line-strong));
   background: color-mix(in srgb, var(--theme-danger, #c61e1e) 10%, var(--panel));
+}
+
+.selection-indicator {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 55;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(5px);
+  padding: 0.32rem 0.58rem;
+  font-size: 0.84rem;
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .status-text {

@@ -7,6 +7,8 @@ export interface StorageListResponseDto {
   parentPath: string | null;
   currentPrivilege: 'owner' | 'editor' | 'viewer';
   entries: StorageEntryDto[];
+  nextCursor: string | null;
+  hasMore: boolean;
   totalStorageLimitBytes: number | null;
   totalStorageUsedBytes: number;
   userStorageQuotaBytes: number;

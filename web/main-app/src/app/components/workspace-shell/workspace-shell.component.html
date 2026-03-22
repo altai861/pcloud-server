@@ -2,11 +2,16 @@
   <header class="workspace-header">
     <a class="logo" routerLink="/app/storage">PCloud</a>
 
-    <label class="header-search">
+    <form class="header-search" (submit)="onSearchSubmit($event)">
       <img src="search.png" alt="" />
-      <input type="text" [ngModel]="searchInput" (ngModelChange)="onSearchChange($event)"
-        placeholder="Search in Storage" />
-    </label>
+      <input
+        type="text"
+        name="workspaceSearch"
+        [ngModel]="searchInput"
+        (ngModelChange)="onSearchChange($event)"
+        placeholder="Search in Storage"
+      />
+    </form>
 
     <div class="header-actions">
       <button type="button" class="theme-toggle"
@@ -35,7 +40,7 @@
           <button type="button" (click)="onCreateFolderClick($event)">Create folder</button>
         </section>
 
-        <input #uploadFileInput type="file" class="upload-file-input" (change)="onUploadFileSelected($event)" />
+        <input #uploadFileInput type="file" multiple class="upload-file-input" (change)="onUploadFileSelected($event)" />
       </div>
 
       <nav class="sidebar-nav">

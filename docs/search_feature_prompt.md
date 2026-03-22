@@ -1,0 +1,1 @@
+hey how about creating new search page end point on the frontend entirely. and that page will show any result that is pertaining to the search input from the user's own storage, and also the resources the user has been shared with, and each entry have option to go to that resource in the storage folder, what do you think about this approach

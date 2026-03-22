@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
+import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
 import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, ViewRef } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { debounceTime, distinctUntilChanged, finalize, Subscription } from 'rxjs';
+import { debounceTime, distinctUntilChanged, finalize, firstValueFrom, Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { ShareableUserDto } from '../../dto/shareable-user.dto';
@@ -25,6 +25,50 @@ interface BreadcrumbItem {
   canOpen: boolean;
 }
 
+type FilterMenuKind = 'type' | 'people' | 'modified' | null;
+type NameSortOrder = 'asc' | 'desc';
+type SortField = 'name' | 'modified' | 'size';
+type ModifiedFilterValue = 'any' | 'last-day' | 'last-week' | 'last-month' | 'last-year';
+type TypeFilterValue =
+  | 'all'
+  | 'folder'
+  | 'file-any'
+  | 'image'
+  | 'document'
+  | 'pdf'
+  | 'spreadsheet'
+  | 'presentation'
+  | 'archive'
+  | 'audio'
+  | 'video'
+  | 'code';
+
+interface FilterOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+interface PeopleFilterOption {
+  userId: number;
+  username: string;
+}
+
+const IMAGE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif', 'tif', 'tiff', 'ico', 'avif'
+]);
+const DOCUMENT_EXTENSIONS = new Set([
+  'txt', 'md', 'rtf', 'doc', 'docx', 'odt', 'pages', 'epub', 'pdf'
+]);
+const PDF_EXTENSIONS = new Set(['pdf']);
+const SPREADSHEET_EXTENSIONS = new Set(['xls', 'xlsx', 'ods', 'csv', 'tsv', 'numbers']);
+const PRESENTATION_EXTENSIONS = new Set(['ppt', 'pptx', 'odp', 'key']);
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'wma']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'm4v']);
+const CODE_EXTENSIONS = new Set([
+  'rs', 'ts', 'js', 'jsx', 'tsx', 'html', 'css', 'scss', 'json', 'yaml', 'yml', 'xml', 'toml', 'go', 'java', 'py', 'c', 'cpp', 'h', 'hpp', 'php', 'sh'
+]);
+
 @Component({
   selector: 'app-storage-home',
   imports: [CommonModule],
@@ -32,6 +76,8 @@ interface BreadcrumbItem {
   styleUrl: './storage-home.component.css'
 })
 export class StorageHomeComponent implements OnInit, OnDestroy {
+  private static readonly STORAGE_PAGE_LIMIT = 200;
+
   private actionSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
   private routeSub: Subscription | null = null;
@@ -49,18 +95,24 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   parentPath: string | null = null;
   currentPrivilege: 'owner' | 'editor' | 'viewer' = 'owner';
   entries: StorageEntryDto[] = [];
+  nextEntriesCursor: string | null = null;
+  hasMoreEntries = false;
 
   storageLoading = false;
+  isLoadingMore = false;
   storageErrorMessage = '';
   viewMode: ViewMode = 'list';
   isUploadInProgress = false;
   uploadProgressPercent: number | null = null;
   uploadFileName = '';
+  uploadBatchTotal = 0;
+  uploadBatchIndex = 0;
   isFolderMetadataOpen = false;
   isFolderMetadataLoading = false;
   folderMetadataErrorMessage = '';
   folderMetadata: StorageFolderMetadataDto | null = null;
   isEntryMenuOpen = false;
+  isEntryMenuForMultiSelection = false;
   entryMenuX = 0;
   entryMenuY = 0;
   entryMenuTarget: StorageEntryDto | null = null;
@@ -81,6 +133,42 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   selectedShareUserId: number | null = null;
   selectedSharePrivilege: 'viewer' | 'editor' = 'viewer';
   shareMutationLoading = false;
+  selectedEntryKeys = new Set<string>();
+  isBulkTrashInProgress = false;
+  isBatchDownloadInProgress = false;
+
+  activeFilterMenu: FilterMenuKind = null;
+  typeFilter: TypeFilterValue = 'all';
+  modifiedFilter: ModifiedFilterValue = 'any';
+  activeSortField: SortField = 'name';
+  nameSortOrder: NameSortOrder = 'asc';
+  modifiedSortOrder: NameSortOrder = 'desc';
+  sizeSortOrder: NameSortOrder = 'desc';
+  peopleSearchTerm = '';
+  selectedPeopleUserIds = new Set<number>();
+
+  readonly typeFilterOptions: FilterOption<TypeFilterValue>[] = [
+    { value: 'all', label: 'All resources' },
+    { value: 'folder', label: 'Folders only' },
+    { value: 'file-any', label: 'Any file' },
+    { value: 'image', label: 'Images' },
+    { value: 'document', label: 'Documents' },
+    { value: 'pdf', label: 'PDF files' },
+    { value: 'spreadsheet', label: 'Spreadsheets' },
+    { value: 'presentation', label: 'Presentations' },
+    { value: 'archive', label: 'Archives' },
+    { value: 'audio', label: 'Audio' },
+    { value: 'video', label: 'Video' },
+    { value: 'code', label: 'Code files' }
+  ];
+
+  readonly modifiedFilterOptions: FilterOption<ModifiedFilterValue>[] = [
+    { value: 'any', label: 'Any time' },
+    { value: 'last-day', label: 'Last day' },
+    { value: 'last-week', label: 'Last week' },
+    { value: 'last-month', label: 'Last month' },
+    { value: 'last-year', label: 'Last year' }
+  ];
 
   constructor(
     private readonly storageApiService: StorageApiService,
@@ -110,6 +198,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.routeSub = this.route.paramMap.subscribe((params) => {
       const source = this.route.snapshot.queryParamMap.get('source');
       this.navigationSource = source === 'shared' ? 'shared' : 'storage';
+      this.resetFiltersForNavigation();
 
       const rawFolderId = params.get('folderId') ?? 'root';
 
@@ -122,6 +211,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       if (!Number.isInteger(folderId) || folderId <= 0) {
         this.storageErrorMessage = 'Invalid folder route';
         this.entries = [];
+        this.selectedEntryKeys.clear();
         this.storageLoading = false;
         this.triggerUiRefresh();
         return;
@@ -201,7 +291,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.navigateToFolderRoute(entry.id);
   }
 
-  ownerAvatarSrc(ownerUserId: number): string {
+  ownerAvatarSrc(ownerUserId: number | null): string {
+    if (ownerUserId === null || !Number.isFinite(ownerUserId)) {
+      return 'profile.png';
+    }
+
     if (this.ownerAvatarFallbackIds.has(ownerUserId)) {
       return 'profile.png';
     }
@@ -222,8 +316,10 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     return src;
   }
 
-  onOwnerAvatarError(event: Event, ownerUserId: number): void {
-    this.ownerAvatarFallbackIds.add(ownerUserId);
+  onOwnerAvatarError(event: Event, ownerUserId: number | null): void {
+    if (ownerUserId !== null && Number.isFinite(ownerUserId)) {
+      this.ownerAvatarFallbackIds.add(ownerUserId);
+    }
 
     const image = event.target as HTMLImageElement | null;
     if (image) {
@@ -231,7 +327,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }
   }
 
-  isDefaultOwnerAvatar(ownerUserId: number): boolean {
+  isDefaultOwnerAvatar(ownerUserId: number | null): boolean {
+    if (ownerUserId === null || !Number.isFinite(ownerUserId)) {
+      return true;
+    }
+
     return this.ownerAvatarFallbackIds.has(ownerUserId);
   }
 
@@ -295,6 +395,198 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.viewMode = mode;
   }
 
+  get displayEntries(): StorageEntryDto[] {
+    let filtered = this.entries.filter((entry) => this.matchesTypeFilter(entry));
+
+    if (this.selectedPeopleUserIds.size > 0) {
+      filtered = filtered.filter(
+        (entry) =>
+          this.selectedPeopleUserIds.has(entry.ownerUserId) ||
+          (entry.createdByUserId !== null && this.selectedPeopleUserIds.has(entry.createdByUserId))
+      );
+    }
+
+    const modifiedThreshold = this.modifiedSinceThreshold();
+    if (modifiedThreshold !== null) {
+      filtered = filtered.filter((entry) => {
+        if (entry.modifiedAtUnixMs === null || !Number.isFinite(entry.modifiedAtUnixMs)) {
+          return false;
+        }
+
+        return entry.modifiedAtUnixMs >= modifiedThreshold;
+      });
+    }
+
+    return [...filtered].sort((left, right) => {
+      if (this.activeSortField === 'modified') {
+        const byModified = this.compareNullableNumbers(
+          left.modifiedAtUnixMs,
+          right.modifiedAtUnixMs,
+          this.modifiedSortOrder
+        );
+        if (byModified !== 0) {
+          return byModified;
+        }
+      } else if (this.activeSortField === 'size') {
+        const bySize = this.compareNullableNumbers(
+          left.sizeBytes,
+          right.sizeBytes,
+          this.sizeSortOrder
+        );
+        if (bySize !== 0) {
+          return bySize;
+        }
+      } else {
+        const byName = this.compareNames(left.name, right.name, this.nameSortOrder);
+        if (byName !== 0) {
+          return byName;
+        }
+      }
+
+      const byName = this.compareNames(left.name, right.name, 'asc');
+      if (byName !== 0) {
+        return byName;
+      }
+
+      if (left.entryType !== right.entryType) {
+        return left.entryType === 'folder' ? -1 : 1;
+      }
+
+      return left.id - right.id;
+    });
+  }
+
+  get peopleFilterOptions(): PeopleFilterOption[] {
+    const optionsById = new Map<number, string>();
+
+    for (const entry of this.entries) {
+      optionsById.set(entry.ownerUserId, entry.ownerUsername);
+
+      if (entry.createdByUserId !== null && Number.isFinite(entry.createdByUserId)) {
+        optionsById.set(entry.createdByUserId, entry.createdByUsername);
+      }
+    }
+
+    const normalizedSearch = this.peopleSearchTerm.trim().toLowerCase();
+
+    return Array.from(optionsById.entries())
+      .map(([userId, username]) => ({ userId, username }))
+      .filter((option) => {
+        if (normalizedSearch.length === 0) {
+          return true;
+        }
+
+        return option.username.toLowerCase().includes(normalizedSearch);
+      })
+      .sort((left, right) =>
+        left.username.localeCompare(right.username, undefined, { sensitivity: 'base' })
+      );
+  }
+
+  get typeFilterLabel(): string {
+    return this.typeFilterOptions.find((option) => option.value === this.typeFilter)?.label ?? 'Type';
+  }
+
+  get modifiedFilterLabel(): string {
+    return this.modifiedFilterOptions.find((option) => option.value === this.modifiedFilter)?.label ?? 'Modified';
+  }
+
+  get sortLabel(): string {
+    return this.nameSortOrder === 'asc' ? 'A-Z' : 'Z-A';
+  }
+
+  get modifiedSortLabel(): string {
+    return this.modifiedSortOrder === 'asc' ? 'Old-New' : 'New-Old';
+  }
+
+  get sizeSortLabel(): string {
+    return this.sizeSortOrder === 'asc' ? 'Small-Large' : 'Large-Small';
+  }
+
+  get hasActiveFilters(): boolean {
+    return (
+      this.typeFilter !== 'all' ||
+      this.modifiedFilter !== 'any' ||
+      this.selectedPeopleUserIds.size > 0
+    );
+  }
+
+  toggleFilterMenu(kind: Exclude<FilterMenuKind, null>, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.activeFilterMenu = this.activeFilterMenu === kind ? null : kind;
+    this.triggerUiRefresh();
+  }
+
+  closeFilterMenu(): void {
+    this.activeFilterMenu = null;
+  }
+
+  setTypeFilter(value: TypeFilterValue): void {
+    this.typeFilter = value;
+    this.pruneSelectedEntries();
+    this.triggerUiRefresh();
+  }
+
+  setModifiedFilter(value: ModifiedFilterValue): void {
+    this.modifiedFilter = value;
+    this.pruneSelectedEntries();
+    this.triggerUiRefresh();
+  }
+
+  isPeopleSelected(userId: number): boolean {
+    return this.selectedPeopleUserIds.has(userId);
+  }
+
+  togglePeopleSelection(userId: number): void {
+    if (this.selectedPeopleUserIds.has(userId)) {
+      this.selectedPeopleUserIds.delete(userId);
+    } else {
+      this.selectedPeopleUserIds.add(userId);
+    }
+
+    this.pruneSelectedEntries();
+    this.triggerUiRefresh();
+  }
+
+  clearPeopleSelection(): void {
+    if (this.selectedPeopleUserIds.size === 0) {
+      return;
+    }
+
+    this.selectedPeopleUserIds.clear();
+    this.pruneSelectedEntries();
+    this.triggerUiRefresh();
+  }
+
+  clearAllFilters(): void {
+    this.typeFilter = 'all';
+    this.modifiedFilter = 'any';
+    this.selectedPeopleUserIds.clear();
+    this.peopleSearchTerm = '';
+    this.activeFilterMenu = null;
+    this.pruneSelectedEntries();
+    this.triggerUiRefresh();
+  }
+
+  toggleSortOrder(): void {
+    this.activeSortField = 'name';
+    this.nameSortOrder = this.nameSortOrder === 'asc' ? 'desc' : 'asc';
+    this.triggerUiRefresh();
+  }
+
+  toggleModifiedSortOrder(): void {
+    this.activeSortField = 'modified';
+    this.modifiedSortOrder = this.modifiedSortOrder === 'asc' ? 'desc' : 'asc';
+    this.triggerUiRefresh();
+  }
+
+  toggleSizeSortOrder(): void {
+    this.activeSortField = 'size';
+    this.sizeSortOrder = this.sizeSortOrder === 'asc' ? 'desc' : 'asc';
+    this.triggerUiRefresh();
+  }
+
   get canEditCurrentFolder(): boolean {
     return this.currentPrivilege === 'owner' || this.currentPrivilege === 'editor';
   }
@@ -307,20 +599,152 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     return this.currentPrivilege === 'owner' || this.currentPrivilege === 'editor';
   }
 
+  get selectedEntriesCount(): number {
+    let count = 0;
+
+    for (const entry of this.displayEntries) {
+      if (this.isEntrySelected(entry)) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  isEntrySelected(entry: StorageEntryDto): boolean {
+    return this.selectedEntryKeys.has(this.entrySelectionKey(entry));
+  }
+
+  onEntryRowClick(event: MouseEvent, entry: StorageEntryDto): void {
+    if (this.isBulkTrashInProgress || this.storageLoading) {
+      return;
+    }
+
+    const additive = event.ctrlKey || event.metaKey;
+    const key = this.entrySelectionKey(entry);
+
+    if (additive) {
+      if (this.selectedEntryKeys.has(key)) {
+        this.selectedEntryKeys.delete(key);
+      } else {
+        this.selectedEntryKeys.add(key);
+      }
+    } else {
+      this.selectedEntryKeys.clear();
+      this.selectedEntryKeys.add(key);
+    }
+
+    this.triggerUiRefresh();
+  }
+
+  clearSelection(): void {
+    if (this.selectedEntryKeys.size === 0) {
+      return;
+    }
+
+    this.selectedEntryKeys.clear();
+    this.triggerUiRefresh();
+  }
+
+  async moveSelectedToTrash(): Promise<void> {
+    if (!this.canMutateExistingEntries) {
+      this.storageErrorMessage = 'Only the owner can delete existing items in this folder';
+      this.triggerUiRefresh();
+      return;
+    }
+
+    if (this.isBulkTrashInProgress || this.storageLoading) {
+      return;
+    }
+
+    const selectedEntries = this.displayEntries.filter((entry) => this.isEntrySelected(entry));
+    if (selectedEntries.length === 0) {
+      this.storageErrorMessage = 'Select at least one item to move to Trash';
+      this.triggerUiRefresh();
+      return;
+    }
+
+    if (!window.confirm(`Move ${selectedEntries.length} selected item(s) to Trash?`)) {
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.isBulkTrashInProgress = true;
+    this.storageLoading = true;
+    this.storageErrorMessage = '';
+    this.closeEntryMenu();
+    this.triggerUiRefresh();
+
+    let failedCount = 0;
+    let lastError = '';
+
+    for (const entry of selectedEntries) {
+      const request = entry.entryType === 'folder'
+        ? this.storageApiService.deleteFolder('', accessToken, entry.path)
+        : this.storageApiService.deleteFile('', accessToken, entry.path);
+
+      try {
+        await firstValueFrom(request);
+      } catch (error: unknown) {
+        failedCount += 1;
+
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          this.isBulkTrashInProgress = false;
+          this.storageLoading = false;
+          this.redirectToLogin();
+          return;
+        }
+
+        lastError = this.extractError(error, `Failed to move ${entry.entryType} to trash`);
+      }
+    }
+
+    this.isBulkTrashInProgress = false;
+    this.storageLoading = false;
+
+    if (failedCount > 0) {
+      const successCount = selectedEntries.length - failedCount;
+      this.storageErrorMessage = successCount > 0
+        ? `${successCount} item(s) moved to Trash, ${failedCount} failed. ${lastError}`.trim()
+        : `${failedCount} item(s) failed to move to Trash. ${lastError}`.trim();
+    }
+
+    this.storageSidebarActions.notifyUsageChanged();
+    this.reloadCurrentFolder();
+  }
+
   openEntryMenuFromButton(event: MouseEvent, entry: StorageEntryDto): void {
     event.preventDefault();
     event.stopPropagation();
-    this.openEntryMenuAt(event.clientX, event.clientY, entry);
+
+    if (!this.isEntrySelected(entry)) {
+      this.selectedEntryKeys.clear();
+      this.selectedEntryKeys.add(this.entrySelectionKey(entry));
+    }
+
+    this.openEntryMenuAt(event.clientX, event.clientY, entry, this.selectedEntriesCount > 1);
   }
 
   openEntryContextMenu(event: MouseEvent, entry: StorageEntryDto): void {
     event.preventDefault();
     event.stopPropagation();
-    this.openEntryMenuAt(event.clientX, event.clientY, entry);
+
+    if (!this.isEntrySelected(entry)) {
+      this.selectedEntryKeys.clear();
+      this.selectedEntryKeys.add(this.entrySelectionKey(entry));
+    }
+
+    this.openEntryMenuAt(event.clientX, event.clientY, entry, this.selectedEntriesCount > 1);
   }
 
   closeEntryMenu(): void {
     this.isEntryMenuOpen = false;
+    this.isEntryMenuForMultiSelection = false;
     this.entryMenuTarget = null;
   }
 
@@ -345,13 +769,33 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
+    if (this.isBatchDownloadInProgress) {
+      return;
+    }
+
+    const selectedEntries = this.displayEntries.filter((entry) => this.isEntrySelected(entry));
+    if (this.isEntryMenuForMultiSelection) {
+      if (selectedEntries.length === 0) {
+        return;
+      }
+
+      this.closeEntryMenu();
+      this.downloadSelectedAsArchive(selectedEntries);
+      return;
+    }
+
     const selectedEntry = this.entryMenuTarget;
-    if (!selectedEntry || selectedEntry.entryType !== 'file') {
+    if (!selectedEntry) {
       return;
     }
 
     this.closeEntryMenu();
-    this.downloadEntry(selectedEntry);
+    if (selectedEntry.entryType === 'file') {
+      this.downloadEntry(selectedEntry);
+      return;
+    }
+
+    this.downloadSelectedAsArchive([selectedEntry]);
   }
 
   onRenameEntryClick(event: MouseEvent): void {
@@ -361,6 +805,10 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     if (!this.canRenameExistingEntries) {
       this.storageErrorMessage = 'You need editor permission to rename items in this folder';
       this.cdr.detectChanges();
+      return;
+    }
+
+    if (this.isEntryMenuForMultiSelection) {
       return;
     }
 
@@ -381,6 +829,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   onDeleteEntryClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (this.isEntryMenuForMultiSelection) {
+      void this.moveSelectedToTrash();
+      return;
+    }
 
     if (!this.canMutateExistingEntries) {
       this.storageErrorMessage = 'Only the owner can delete existing items in this folder';
@@ -507,18 +960,54 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   get isEntryDownloadDisabled(): boolean {
-    return !this.entryMenuTarget || this.entryMenuTarget.entryType !== 'file';
+    if (this.isBatchDownloadInProgress || this.storageLoading || this.isBulkTrashInProgress) {
+      return true;
+    }
+
+    if (this.isEntryMenuForMultiSelection) {
+      return this.selectedEntriesCount === 0;
+    }
+
+    return !this.entryMenuTarget;
+  }
+
+  get entryDownloadLabel(): string {
+    if (this.isBatchDownloadInProgress) {
+      return 'Preparing archive...';
+    }
+
+    if (this.isEntryMenuForMultiSelection) {
+      return 'Download selected';
+    }
+
+    if (this.entryMenuTarget?.entryType === 'folder') {
+      return 'Download folder';
+    }
+
+    return 'Download file';
   }
 
   get isEntryEditDisabled(): boolean {
+    if (this.isEntryMenuForMultiSelection) {
+      return !this.canMutateExistingEntries || this.selectedEntriesCount === 0;
+    }
+
     return !this.entryMenuTarget || !this.canMutateExistingEntries;
   }
 
   get isEntryRenameDisabled(): boolean {
+    if (this.isEntryMenuForMultiSelection) {
+      return true;
+    }
+
     return !this.entryMenuTarget || !this.canRenameExistingEntries;
   }
 
   get isEntryShareDisabled(): boolean {
+    if (this.isEntryMenuForMultiSelection) {
+      return true;
+    }
+
     return !this.entryMenuTarget || this.currentPrivilege !== 'owner';
   }
 
@@ -758,14 +1247,27 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }).format(date);
   }
 
-  @HostListener('document:click')
-  onDocumentClick(): void {
-    if (!this.isEntryMenuOpen) {
-      return;
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    const clickedInsideRow = !!target?.closest('.list-row');
+    const clickedInsideMenu = !!target?.closest('.entry-context-menu');
+    const clickedInsideFilters = !!target?.closest('.quick-filters');
+    const additive = event.ctrlKey || event.metaKey;
+
+    if (this.isEntryMenuOpen) {
+      this.closeEntryMenu();
+      this.cdr.detectChanges();
     }
 
-    this.closeEntryMenu();
-    this.cdr.detectChanges();
+    if (this.activeFilterMenu !== null && !clickedInsideFilters) {
+      this.closeFilterMenu();
+      this.cdr.detectChanges();
+    }
+
+    if (!additive && !clickedInsideRow && !clickedInsideMenu && !clickedInsideFilters) {
+      this.clearSelection();
+    }
   }
 
   @HostListener('document:keydown.escape')
@@ -782,6 +1284,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.activeFilterMenu !== null) {
+      this.closeFilterMenu();
+      this.cdr.detectChanges();
+      return;
+    }
+
     if (!this.isEntryMenuOpen) {
       return;
     }
@@ -790,15 +1298,56 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeyDown(event: KeyboardEvent): void {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+
+    if (event.key.toLowerCase() !== 'a') {
+      return;
+    }
+
+    if (this.isTypingTarget(event.target as HTMLElement | null)) {
+      return;
+    }
+
+    if (this.displayEntries.length === 0 || this.storageLoading || this.isBulkTrashInProgress) {
+      return;
+    }
+
+    event.preventDefault();
+
+    this.selectedEntryKeys.clear();
+    for (const entry of this.displayEntries) {
+      this.selectedEntryKeys.add(this.entrySelectionKey(entry));
+    }
+
+    this.triggerUiRefresh();
+  }
+
   private loadStorageByFolderId(folderId: number): void {
-    this.loadStorageInternal('', folderId, false);
+    this.loadStorageInternal('', folderId, false, false);
   }
 
   private loadStorageByPath(path: string, syncRoute: boolean): void {
-    this.loadStorageInternal(path, null, syncRoute);
+    this.loadStorageInternal(path, null, syncRoute, false);
   }
 
-  private loadStorageInternal(path: string, folderId: number | null, syncRoute: boolean): void {
+  loadMoreEntries(): void {
+    if (this.storageLoading || this.isLoadingMore || !this.hasMoreEntries || !this.nextEntriesCursor) {
+      return;
+    }
+
+    if (this.currentFolderId !== null) {
+      this.loadStorageInternal('', this.currentFolderId, false, true);
+      return;
+    }
+
+    this.loadStorageInternal(this.currentPath, null, false, true);
+  }
+
+  private loadStorageInternal(path: string, folderId: number | null, syncRoute: boolean, append: boolean): void {
     const accessToken = this.sessionService.readAccessToken();
 
     if (!accessToken) {
@@ -809,18 +1358,38 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.listLoadSub?.unsubscribe();
     const requestId = ++this.listRequestId;
 
-    this.storageLoading = true;
-    this.storageErrorMessage = '';
+    const requestCursor = append ? this.nextEntriesCursor : null;
+
+    if (append) {
+      this.isLoadingMore = true;
+    } else {
+      this.storageLoading = true;
+      this.storageErrorMessage = '';
+      this.nextEntriesCursor = null;
+      this.hasMoreEntries = false;
+    }
 
     this.listLoadSub = this.storageApiService
-      .list('', accessToken, path, this.searchTerm, folderId)
+      .list(
+        '',
+        accessToken,
+        path,
+        this.searchTerm,
+        folderId,
+        StorageHomeComponent.STORAGE_PAGE_LIMIT,
+        requestCursor
+      )
       .pipe(finalize(() => {
         if (requestId !== this.listRequestId) {
           return;
         }
 
         this.listLoadSub = null;
-        this.storageLoading = false;
+        if (append) {
+          this.isLoadingMore = false;
+        } else {
+          this.storageLoading = false;
+        }
         this.triggerUiRefresh();
       }))
       .subscribe({
@@ -833,10 +1402,13 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
           this.currentFolderId = body.currentFolderId;
           this.parentPath = body.parentPath;
           this.currentPrivilege = body.currentPrivilege;
-          this.entries = body.entries;
+          this.entries = append ? [...this.entries, ...body.entries] : body.entries;
+          this.pruneSelectedEntries();
+          this.nextEntriesCursor = body.nextCursor;
+          this.hasMoreEntries = body.hasMore;
           this.ownerAvatarAccessToken = accessToken;
 
-          if (syncRoute && body.currentFolderId !== null) {
+          if (syncRoute && !append && body.currentFolderId !== null) {
             this.navigateToFolderRoute(body.currentFolderId);
           }
 
@@ -864,8 +1436,13 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (action.type === 'upload-files') {
+      this.uploadFiles(action.files);
+      return;
+    }
+
     if (action.type === 'upload-file') {
-      this.uploadFile(action.file);
+      this.uploadFiles([action.file]);
       return;
     }
 
@@ -922,7 +1499,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       });
   }
 
-  private uploadFile(file: File): void {
+  private uploadFiles(files: File[]): void {
+    if (files.length === 0) {
+      return;
+    }
+
     if (!this.canEditCurrentFolder) {
       this.storageErrorMessage = 'You need editor permission to upload files in this location';
       this.cdr.detectChanges();
@@ -935,21 +1516,36 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const queue = [...files];
+
     this.isUploadInProgress = true;
-    this.uploadProgressPercent = 0;
-    this.uploadFileName = file.name;
+    this.uploadBatchTotal = queue.length;
+    this.uploadBatchIndex = 0;
+    this.uploadProgressPercent = null;
+    this.uploadFileName = '';
     this.storageLoading = true;
     this.storageErrorMessage = '';
+    this.cdr.detectChanges();
+
+    this.uploadNextFile(queue, accessToken);
+  }
+
+  private uploadNextFile(queue: File[], accessToken: string): void {
+    if (queue.length === 0) {
+      this.finishUploadBatch(true);
+      return;
+    }
+
+    const file = queue.shift() as File;
+    this.uploadBatchIndex += 1;
+    this.uploadProgressPercent = 0;
+    this.uploadFileName = this.uploadBatchTotal > 1
+      ? `${file.name} (${this.uploadBatchIndex}/${this.uploadBatchTotal})`
+      : file.name;
+    this.cdr.detectChanges();
 
     this.storageApiService
       .uploadFile('', accessToken, this.currentPath, this.currentFolderId, file)
-      .pipe(finalize(() => {
-        this.isUploadInProgress = false;
-        this.uploadProgressPercent = null;
-        this.uploadFileName = '';
-        this.storageLoading = false;
-        this.cdr.detectChanges();
-      }))
       .subscribe({
         next: (event) => {
           if (event.type === HttpEventType.UploadProgress) {
@@ -967,8 +1563,8 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
           if (event.type === HttpEventType.Response) {
             this.uploadProgressPercent = 100;
-            this.storageSidebarActions.notifyUsageChanged();
-            this.reloadCurrentFolder();
+            this.cdr.detectChanges();
+            this.uploadNextFile(queue, accessToken);
           }
         },
         error: (error: unknown) => {
@@ -976,14 +1572,32 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
           if (error instanceof HttpErrorResponse && error.status === 401) {
             this.redirectToLogin();
+            return;
           }
 
-          this.cdr.detectChanges();
+          this.finishUploadBatch(true);
         }
       });
   }
 
-  private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto): void {
+  private finishUploadBatch(reloadStorageList: boolean): void {
+    this.isUploadInProgress = false;
+    this.uploadProgressPercent = null;
+    this.uploadFileName = '';
+    this.uploadBatchTotal = 0;
+    this.uploadBatchIndex = 0;
+    this.storageLoading = false;
+
+    if (reloadStorageList) {
+      this.storageSidebarActions.notifyUsageChanged();
+      this.reloadCurrentFolder();
+      return;
+    }
+
+    this.cdr.detectChanges();
+  }
+
+  private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto, multiSelection: boolean): void {
     const menuWidth = 176;
     const menuHeight = 176;
     const viewportPadding = 8;
@@ -999,9 +1613,27 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
     this.entryMenuX = left;
     this.entryMenuY = top;
+    this.isEntryMenuForMultiSelection = multiSelection;
     this.entryMenuTarget = entry;
     this.isEntryMenuOpen = true;
     this.cdr.detectChanges();
+  }
+
+  private entrySelectionKey(entry: StorageEntryDto): string {
+    return `${entry.entryType}:${entry.id}`;
+  }
+
+  private pruneSelectedEntries(): void {
+    if (this.selectedEntryKeys.size === 0) {
+      return;
+    }
+
+    const visibleKeys = new Set(this.displayEntries.map((entry) => this.entrySelectionKey(entry)));
+    for (const key of Array.from(this.selectedEntryKeys)) {
+      if (!visibleKeys.has(key)) {
+        this.selectedEntryKeys.delete(key);
+      }
+    }
   }
 
   private openShareModal(entry: StorageEntryDto): void {
@@ -1074,6 +1706,191 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     anchor.remove();
   }
 
+  private downloadSelectedAsArchive(entries: StorageEntryDto[]): void {
+    if (entries.length === 0) {
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.isBatchDownloadInProgress = true;
+    this.storageErrorMessage = '';
+    this.cdr.detectChanges();
+
+    this.storageApiService
+      .downloadBatch(
+        '',
+        accessToken,
+        entries.map((entry) => ({
+          entryType: entry.entryType,
+          resourceId: entry.id
+        }))
+      )
+      .pipe(finalize(() => {
+        this.isBatchDownloadInProgress = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (response: HttpResponse<Blob>) => {
+          const archiveBlob = response.body;
+          if (!archiveBlob) {
+            this.storageErrorMessage = 'Batch download returned an empty archive';
+            this.cdr.detectChanges();
+            return;
+          }
+
+          const fileName = this.extractBatchDownloadName(response, entries.length);
+          const downloadUrl = URL.createObjectURL(archiveBlob);
+          const anchor = document.createElement('a');
+          anchor.href = downloadUrl;
+          anchor.download = fileName;
+          anchor.rel = 'noopener noreferrer';
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 30_000);
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.storageErrorMessage = this.extractError(error, 'Failed to download selected items');
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+            return;
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  private matchesTypeFilter(entry: StorageEntryDto): boolean {
+    if (this.typeFilter === 'all') {
+      return true;
+    }
+
+    if (this.typeFilter === 'folder') {
+      return entry.entryType === 'folder';
+    }
+
+    if (entry.entryType !== 'file') {
+      return false;
+    }
+
+    if (this.typeFilter === 'file-any') {
+      return true;
+    }
+
+    const extension = this.fileExtension(entry.name);
+    if (!extension) {
+      return false;
+    }
+
+    switch (this.typeFilter) {
+      case 'image':
+        return IMAGE_EXTENSIONS.has(extension);
+      case 'document':
+        return DOCUMENT_EXTENSIONS.has(extension);
+      case 'pdf':
+        return PDF_EXTENSIONS.has(extension);
+      case 'spreadsheet':
+        return SPREADSHEET_EXTENSIONS.has(extension);
+      case 'presentation':
+        return PRESENTATION_EXTENSIONS.has(extension);
+      case 'archive':
+        return ARCHIVE_EXTENSIONS.has(extension);
+      case 'audio':
+        return AUDIO_EXTENSIONS.has(extension);
+      case 'video':
+        return VIDEO_EXTENSIONS.has(extension);
+      case 'code':
+        return CODE_EXTENSIONS.has(extension);
+      default:
+        return true;
+    }
+  }
+
+  private modifiedSinceThreshold(): number | null {
+    const now = Date.now();
+
+    switch (this.modifiedFilter) {
+      case 'last-day':
+        return now - 24 * 60 * 60 * 1000;
+      case 'last-week':
+        return now - 7 * 24 * 60 * 60 * 1000;
+      case 'last-month':
+        return now - 30 * 24 * 60 * 60 * 1000;
+      case 'last-year':
+        return now - 365 * 24 * 60 * 60 * 1000;
+      default:
+        return null;
+    }
+  }
+
+  private fileExtension(fileName: string): string | null {
+    const normalizedName = fileName.trim().toLowerCase();
+    const dotIndex = normalizedName.lastIndexOf('.');
+
+    if (dotIndex <= 0 || dotIndex >= normalizedName.length - 1) {
+      return null;
+    }
+
+    return normalizedName.slice(dotIndex + 1);
+  }
+
+  private compareNames(left: string, right: string, order: NameSortOrder): number {
+    const direction = order === 'asc' ? 1 : -1;
+    const compared = left.localeCompare(right, undefined, {
+      sensitivity: 'base',
+      numeric: true
+    });
+
+    return compared * direction;
+  }
+
+  private compareNullableNumbers(
+    left: number | null,
+    right: number | null,
+    order: NameSortOrder
+  ): number {
+    const leftValid = left !== null && Number.isFinite(left);
+    const rightValid = right !== null && Number.isFinite(right);
+
+    if (!leftValid && !rightValid) {
+      return 0;
+    }
+
+    if (!leftValid) {
+      return 1;
+    }
+
+    if (!rightValid) {
+      return -1;
+    }
+
+    if (left === right) {
+      return 0;
+    }
+
+    if (order === 'asc') {
+      return left < right ? -1 : 1;
+    }
+
+    return left > right ? -1 : 1;
+  }
+
+  private resetFiltersForNavigation(): void {
+    this.typeFilter = 'all';
+    this.modifiedFilter = 'any';
+    this.peopleSearchTerm = '';
+    this.selectedPeopleUserIds.clear();
+    this.activeFilterMenu = null;
+  }
+
   private redirectToLogin(): void {
     this.sessionService.clearSession();
     this.router.navigate(['/login']);
@@ -1138,6 +1955,52 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }
 
     return fallback;
+  }
+
+  private isTypingTarget(target: HTMLElement | null): boolean {
+    if (!target) {
+      return false;
+    }
+
+    const tag = target.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      return true;
+    }
+
+    if (target.isContentEditable) {
+      return true;
+    }
+
+    return target.closest('[contenteditable="true"]') !== null;
+  }
+
+  private extractBatchDownloadName(response: HttpResponse<Blob>, selectionSize: number): string {
+    const contentDisposition = response.headers.get('content-disposition');
+    if (contentDisposition) {
+      const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+      if (utf8Match?.[1]) {
+        try {
+          const decoded = decodeURIComponent(utf8Match[1]);
+          const normalized = decoded.trim().replace(/[\\/]/g, '_');
+          if (normalized.length > 0) {
+            return normalized;
+          }
+        } catch {
+          // Keep fallback handling below.
+        }
+      }
+
+      const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+      const plainMatch = contentDisposition.match(/filename=([^;]+)/i);
+      const candidate = quotedMatch?.[1] ?? plainMatch?.[1] ?? '';
+      const normalized = candidate.trim().replace(/[\\/]/g, '_');
+      if (normalized.length > 0) {
+        return normalized;
+      }
+    }
+
+    const unixSeconds = Math.floor(Date.now() / 1000);
+    return `pcloud-batch-${selectionSize}-${unixSeconds}.zip`;
   }
 
   private triggerUiRefresh(): void {

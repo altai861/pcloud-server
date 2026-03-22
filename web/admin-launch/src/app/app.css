@@ -94,6 +94,10 @@
   object-fit: contain;
 }
 
+:host-context([data-theme='dark']) .theme-toggle-icon {
+  filter: invert(1) brightness(1.2);
+}
+
 .main-panel {
   width: min(1220px, 96vw);
   margin: 0 auto;

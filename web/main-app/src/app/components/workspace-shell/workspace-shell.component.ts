@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 
 import { AuthUserDto } from '../../dto/auth-user.dto';
 import { AuthApiService } from '../../services/auth-api.service';
@@ -23,6 +23,7 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
 
   private profileImageSub: Subscription | null = null;
   private usageChangedSub: Subscription | null = null;
+  private routerEventsSub: Subscription | null = null;
 
   currentUser: AuthUserDto | null = null;
   profileImageSrc: string | null = null;
@@ -50,6 +51,12 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
     this.usageChangedSub = this.storageSidebarActions.usageChanged$.subscribe(() => {
       this.loadCurrentUser();
     });
+    this.routerEventsSub = this.router.events
+      .pipe(filter((event) => event instanceof NavigationEnd))
+      .subscribe(() => {
+        this.syncSearchInputFromRoute();
+      });
+    this.syncSearchInputFromRoute();
     this.loadCurrentUser();
   }
 
@@ -58,11 +65,21 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
     this.profileImageSub = null;
     this.usageChangedSub?.unsubscribe();
     this.usageChangedSub = null;
+    this.routerEventsSub?.unsubscribe();
+    this.routerEventsSub = null;
   }
 
   onSearchChange(value: string): void {
     this.searchInput = value;
-    this.searchService.setSearchTerm(value);
+  }
+
+  onSearchSubmit(event?: Event): void {
+    event?.preventDefault();
+    const normalizedQuery = this.searchInput.trim();
+    this.searchService.setSearchTerm(normalizedQuery);
+
+    const queryParams = normalizedQuery.length > 0 ? { q: normalizedQuery } : {};
+    this.router.navigate(['/app/search'], { queryParams });
   }
 
   onProfileClick(): void {
@@ -92,17 +109,17 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
 
   onUploadFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = Array.from(input.files ?? []);
 
     if (input) {
       input.value = '';
     }
 
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
 
-    this.dispatchStorageAction({ type: 'upload-file', file });
+    this.dispatchStorageAction({ type: 'upload-files', files });
   }
 
   @HostListener('document:click', ['$event'])
@@ -187,5 +204,21 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
         this.profileImageService.clear();
       }
     });
+  }
+
+  private syncSearchInputFromRoute(): void {
+    const urlTree = this.router.parseUrl(this.router.url);
+    const primarySegments = urlTree.root.children['primary']?.segments ?? [];
+    const primaryPath = primarySegments.map((segment) => segment.path).join('/');
+
+    if (primaryPath === 'app/search') {
+      const queryValue = urlTree.queryParams['q'];
+      this.searchInput = typeof queryValue === 'string' ? queryValue : '';
+      this.searchService.setSearchTerm(this.searchInput);
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.searchService.setSearchTerm('');
   }
 }

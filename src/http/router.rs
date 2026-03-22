@@ -31,6 +31,7 @@ pub fn build_client_router(state: AppState) -> Router {
             "/api/client/users/profile-image",
             get(auth_handlers::user_profile_image),
         )
+        .route("/api/client/search", get(storage_handlers::search_resources))
         .route("/api/client/storage/list", get(storage_handlers::list))
         .route(
             "/api/client/storage/trash/list",
@@ -100,6 +101,10 @@ pub fn build_client_router(state: AppState) -> Router {
         .route(
             "/api/client/storage/files/download",
             get(storage_handlers::download_file),
+        )
+        .route(
+            "/api/client/storage/downloads/batch",
+            post(storage_handlers::download_batch),
         )
         .route(
             "/api/client/admin/users",

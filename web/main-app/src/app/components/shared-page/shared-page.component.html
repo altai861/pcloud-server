@@ -1,36 +1,154 @@
 <section class="shared-content">
+  <section class="shared-toolbar">
+    <div class="shared-filters">
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('type', $event)">
+          {{ typeFilterLabel }}
+          <img src="down-arrow.png" alt="" />
+        </button>
+
+        <section
+          class="filter-menu"
+          *ngIf="activeFilterMenu === 'type'"
+          (click)="$event.stopPropagation()"
+          (contextmenu)="$event.preventDefault()"
+        >
+          <button
+            type="button"
+            class="filter-option"
+            *ngFor="let option of typeFilterOptions"
+            [class.active]="typeFilter === option.value"
+            (click)="setTypeFilter(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </section>
+      </div>
+
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('people', $event)">
+          People
+          <span class="filter-count" *ngIf="selectedPeopleUserIds.size > 0">{{ selectedPeopleUserIds.size }}</span>
+          <img src="down-arrow.png" alt="" />
+        </button>
+
+        <section
+          class="filter-menu people-menu"
+          *ngIf="activeFilterMenu === 'people'"
+          (click)="$event.stopPropagation()"
+          (contextmenu)="$event.preventDefault()"
+        >
+          <label class="people-search-label">
+            <input
+              type="text"
+              [value]="peopleSearchTerm"
+              (input)="peopleSearchTerm = $any($event.target).value"
+              placeholder="Search people"
+            />
+          </label>
+
+          <button
+            type="button"
+            class="filter-option"
+            *ngFor="let person of peopleFilterOptions"
+            [class.active]="isPeopleSelected(person.userId)"
+            (click)="togglePeopleSelection(person.userId)"
+          >
+            {{ person.username }}
+          </button>
+
+          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">No matching users</p>
+
+          <div class="people-actions">
+            <button type="button" class="subtle" (click)="clearPeopleSelection()">Clear</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="filter-anchor">
+        <button type="button" (click)="toggleFilterMenu('modified', $event)">
+          {{ modifiedFilterLabel }}
+          <img src="down-arrow.png" alt="" />
+        </button>
+
+        <section
+          class="filter-menu"
+          *ngIf="activeFilterMenu === 'modified'"
+          (click)="$event.stopPropagation()"
+          (contextmenu)="$event.preventDefault()"
+        >
+          <button
+            type="button"
+            class="filter-option"
+            *ngFor="let option of modifiedFilterOptions"
+            [class.active]="modifiedFilter === option.value"
+            (click)="setModifiedFilter(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </section>
+      </div>
+
+      <button
+        type="button"
+        class="clear-filters-inline"
+        *ngIf="hasActiveFilters"
+        (click)="clearAllFilters()"
+      >
+        Clear
+      </button>
+    </div>
+  </section>
+
   <section class="shared-list-wrap">
     <header class="shared-list-header">
       <span>Name</span>
-      <span>Owner</span>
+      <span>Owner / Created by</span>
       <span>Date shared</span>
-      <span class="sort-cell">
+      <button
+        type="button"
+        class="sort-cell sort-toggle"
+        [attr.aria-label]="nameSortOrder === 'asc' ? 'Sort by name ascending' : 'Sort by name descending'"
+        (click)="toggleSortOrder()"
+      >
         <img src="sort.png" alt="" />
-        <span>Sort</span>
-      </span>
+        <span>{{ sortLabel }}</span>
+      </button>
     </header>
 
     <p class="status-text" *ngIf="loading">Loading shared resources...</p>
     <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
-    <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
-      No resources have been shared with you yet.
+    <p class="status-text" *ngIf="!loading && !errorMessage && displayEntries.length === 0">
+      {{ entries.length === 0 ? 'No resources have been shared with you yet.' : 'No resources match the selected filters.' }}
     </p>
 
-    <article class="shared-row" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
+    <article class="shared-row" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button class="name-cell" type="button" (click)="openEntry(entry)">
         <img [src]="entry.resourceType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </button>
 
       <span class="owner-cell">
-        <img
-          class="owner-avatar"
-          [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
-          [src]="ownerAvatarSrc(entry.ownerUserId)"
-          (error)="onOwnerAvatarError($event, entry.ownerUserId)"
-          alt=""
-        />
-        <span>{{ entry.ownerUsername }}</span>
+        <span class="user-pill">
+          <img
+            class="owner-avatar"
+            [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
+            [src]="ownerAvatarSrc(entry.ownerUserId)"
+            (error)="onOwnerAvatarError($event, entry.ownerUserId)"
+            alt=""
+          />
+          <span>Owner: {{ entry.ownerUsername }}</span>
+        </span>
+        <span class="user-pill">
+          <img
+            class="owner-avatar"
+            [class.default-avatar]="isDefaultOwnerAvatar(entry.createdByUserId)"
+            [src]="ownerAvatarSrc(entry.createdByUserId)"
+            (error)="onOwnerAvatarError($event, entry.createdByUserId)"
+            alt=""
+          />
+          <span>Created: {{ entry.createdByUsername }}</span>
+        </span>
       </span>
       <span>{{ formatDate(entry.dateSharedUnixMs) }}</span>
       <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">

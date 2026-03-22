@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
 CREATE TABLE IF NOT EXISTS folders (
     id BIGSERIAL PRIMARY KEY,
     owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
     parent_folder_id BIGINT REFERENCES folders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS folders (
 CREATE TABLE IF NOT EXISTS files (
     id BIGSERIAL PRIMARY KEY,
     owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
     folder_id BIGINT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     original_file_name TEXT,
@@ -127,6 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_folders_owner_parent ON folders(owner_user_id, parent_folder_id);
 CREATE INDEX IF NOT EXISTS idx_folders_owner_path ON folders(owner_user_id, path);
+CREATE INDEX IF NOT EXISTS idx_folders_created_by_user_id ON folders(created_by_user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_folders_owner_path_active
     ON folders(owner_user_id, path)
     WHERE is_deleted = FALSE;
@@ -136,6 +139,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_folders_owner_parent_name_active
 
 CREATE INDEX IF NOT EXISTS idx_files_owner_folder ON files(owner_user_id, folder_id);
 CREATE INDEX IF NOT EXISTS idx_files_folder_id ON files(folder_id);
+CREATE INDEX IF NOT EXISTS idx_files_created_by_user_id ON files(created_by_user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_files_owner_folder_name_active
     ON files(owner_user_id, folder_id, name)
     WHERE is_deleted = FALSE;

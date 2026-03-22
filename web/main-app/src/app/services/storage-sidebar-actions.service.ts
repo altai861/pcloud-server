@@ -3,6 +3,7 @@ import { Observable, Subject } from 'rxjs';
 
 export type StorageSidebarAction =
   | { type: 'create-folder' }
+  | { type: 'upload-files'; files: File[] }
   | { type: 'upload-file'; file: File }
   | { type: 'open-path'; path: string };
 

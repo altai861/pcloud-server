@@ -5,6 +5,7 @@ import { catchError, map, of } from 'rxjs';
 import { AdminPageComponent } from './components/admin-page/admin-page.component';
 import { HomePageComponent } from './components/home-page/home-page.component';
 import { LoginPageComponent } from './components/login-page/login-page.component';
+import { SearchPageComponent } from './components/search-page/search-page.component';
 import { SharedPageComponent } from './components/shared-page/shared-page.component';
 import { StarredPageComponent } from './components/starred-page/starred-page.component';
 import { StorageFilePageComponent } from './components/storage-file-page/storage-file-page.component';
@@ -107,6 +108,10 @@ export const routes: Routes = [
       {
         path: 'shared',
         component: SharedPageComponent
+      },
+      {
+        path: 'search',
+        component: SearchPageComponent
       },
       {
         path: 'admin',

@@ -19,7 +19,13 @@
       Trash is empty.
     </p>
 
-    <article class="list-row" *ngFor="let entry of entries">
+    <article
+      class="list-row"
+      *ngFor="let entry of entries"
+      [class.selected]="isEntrySelected(entry)"
+      (click)="onEntryRowClick($event, entry)"
+      (contextmenu)="openEntryContextMenu($event, entry)"
+    >
       <span class="name-cell">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
@@ -34,6 +40,10 @@
   </section>
 </section>
 
+<aside class="selection-indicator" *ngIf="selectedEntriesCount > 0">
+  {{ selectedEntriesCount }} selected
+</aside>
+
 <section
   class="entry-context-menu"
   *ngIf="isEntryMenuOpen"
@@ -42,10 +52,10 @@
   (click)="$event.stopPropagation()"
   (contextmenu)="$event.preventDefault()"
 >
-  <button type="button" (click)="onRestoreEntry($event)">
+  <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onRestoreEntry($event)">
     Restore
   </button>
   <button type="button" class="danger" (click)="onPermanentDelete($event)">
-    Delete permanently
+    {{ isEntryMenuForMultiSelection ? (isBulkDeleteInProgress ? 'Deleting...' : 'Delete selected permanently') : 'Delete permanently' }}
   </button>
 </section>

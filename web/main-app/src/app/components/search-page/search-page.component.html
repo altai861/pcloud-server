@@ -1,0 +1,64 @@
+<section class="search-content">
+  <header class="search-header">
+    <h2>Search</h2>
+    <p *ngIf="query.length > 0">Results for "{{ query }}"</p>
+    <p *ngIf="query.length === 0">Enter a keyword in the header search bar and press Enter.</p>
+  </header>
+
+  <section class="search-list-wrap" *ngIf="query.length > 0">
+    <header class="search-list-header">
+      <span>Name</span>
+      <span>Location</span>
+      <span>Owner / Created by</span>
+      <span>Updated</span>
+      <span>Size</span>
+      <span>Actions</span>
+    </header>
+
+    <p class="status-text" *ngIf="loading">Searching resources...</p>
+    <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
+    <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
+      No resources matched your search.
+    </p>
+
+    <article class="search-row" *ngFor="let entry of entries">
+      <button class="name-cell" type="button" (click)="openResource(entry)">
+        <img [src]="entry.resourceType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <span>{{ entry.name }}</span>
+      </button>
+
+      <span class="location-cell">
+        <span class="source-badge" [class.shared]="entry.sourceContext === 'shared'">{{ sourceLabel(entry) }}</span>
+        <span class="path-text">{{ entry.path }}</span>
+      </span>
+
+      <span class="owner-cell">
+        <span class="user-pill">
+          <img
+            class="owner-avatar"
+            [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
+            [src]="ownerAvatarSrc(entry.ownerUserId)"
+            (error)="onOwnerAvatarError($event, entry.ownerUserId)"
+            alt=""
+          />
+          <span>{{ entry.ownerUsername }}</span>
+        </span>
+        <span class="created-by">Created by {{ entry.createdByUsername }}</span>
+      </span>
+
+      <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
+      <span>{{ formatSize(entry.sizeBytes) }}</span>
+
+      <span class="action-cell">
+        <button type="button" class="subtle" (click)="goToLocation(entry)">Go to location</button>
+        <button type="button" class="subtle" (click)="openResource(entry)">Open</button>
+      </span>
+    </article>
+  </section>
+
+  <footer class="search-footer" *ngIf="query.length > 0 && !loading && !errorMessage && hasMore">
+    <button type="button" class="load-more" [disabled]="loadingMore" (click)="loadMore()">
+      {{ loadingMore ? 'Loading...' : 'Load more' }}
+    </button>
+  </footer>
+</section>

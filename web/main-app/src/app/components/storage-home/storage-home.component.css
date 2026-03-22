@@ -138,6 +138,7 @@ button {
 }
 
 .quick-filters {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--panel);
@@ -146,6 +147,11 @@ button {
   align-items: center;
   gap: 0.48rem;
   padding: 0.3rem 0.52rem;
+}
+
+.filter-anchor {
+  position: relative;
+  display: inline-flex;
 }
 
 .quick-filters button {
@@ -158,6 +164,133 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.quick-filters .filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--focus) 20%, var(--input));
+  border: 1px solid color-mix(in srgb, var(--focus) 45%, var(--line));
+  color: var(--text);
+  font-size: 0.76rem;
+  display: inline-grid;
+  place-items: center;
+}
+
+.filter-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 18;
+  min-width: 210px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--theme-shadow);
+  padding: 0.35rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.people-menu {
+  min-width: 260px;
+}
+
+.filter-option {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  min-height: 34px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.filter-option:hover {
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 8%, var(--panel));
+}
+
+.filter-option.active {
+  border-color: color-mix(in srgb, var(--focus) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 16%, var(--input));
+}
+
+.people-search-label {
+  display: block;
+}
+
+.people-search-label input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 0.52rem;
+  background: var(--input);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-family: inherit;
+}
+
+.filter-empty {
+  margin: 0.2rem 0.2rem 0.28rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.people-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.people-actions .subtle {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text);
+  min-height: 30px;
+  padding: 0 0.52rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.clear-filters-inline {
+  border: none;
+  background: transparent;
+  min-height: 32px;
+  padding: 0 0.2rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.clear-filters-inline:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--focus) 8%, transparent);
+}
+
+.clear-filters-inline:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+.clear-filters-button {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  min-height: 42px;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
 }
 
 .quick-filters img {
@@ -179,6 +312,35 @@ button {
   background: var(--panel);
   min-height: 0;
   overflow: auto;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  padding: 0.78rem 0.62rem 0.92rem;
+}
+
+.pagination-controls button {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--input);
+  min-height: 34px;
+  min-width: 112px;
+  padding: 0.34rem 0.84rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--focus) 42%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 8%, var(--input));
+}
+
+.pagination-controls button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .upload-progress {
@@ -230,7 +392,7 @@ button {
 .list-header,
 .list-row {
   display: grid;
-  grid-template-columns: minmax(250px, 2fr) minmax(105px, 0.8fr) minmax(140px, 1fr) minmax(105px, 0.7fr) 38px 44px;
+  grid-template-columns: minmax(250px, 2fr) minmax(250px, 1.5fr) minmax(140px, 1fr) minmax(105px, 0.7fr) 38px 86px;
   gap: 0.35rem;
   align-items: center;
   min-height: 44px;
@@ -254,6 +416,55 @@ button {
   align-items: center;
   gap: 0.22rem;
   justify-content: flex-end;
+  white-space: nowrap;
+  padding-right: 0.22rem;
+}
+
+.column-sort-button {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  min-height: 30px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.34rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.28rem;
+  white-space: nowrap;
+}
+
+.column-sort-button:hover {
+  border-color: color-mix(in srgb, var(--focus) 30%, var(--line));
+  background: color-mix(in srgb, var(--focus) 6%, var(--theme-surface-soft-2));
+}
+
+.column-sort-button.active {
+  border-color: color-mix(in srgb, var(--focus) 40%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 10%, var(--theme-surface-soft-2));
+}
+
+.sort-toggle {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  min-height: 30px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.34rem;
+  cursor: pointer;
+}
+
+.sort-toggle:hover {
+  border-color: color-mix(in srgb, var(--focus) 30%, var(--line));
+  background: color-mix(in srgb, var(--focus) 6%, var(--theme-surface-soft-2));
+}
+
+.sort-toggle.active {
+  border-color: color-mix(in srgb, var(--focus) 40%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 10%, var(--theme-surface-soft-2));
 }
 
 .star-cell-header {
@@ -263,6 +474,12 @@ button {
 .sort-cell img {
   width: 18px;
   height: 18px;
+}
+
+.order-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
 }
 
 .list-row {
@@ -278,6 +495,11 @@ button {
 
 .list-row:hover {
   background: color-mix(in srgb, var(--focus) 6%, var(--panel));
+}
+
+.list-row.selected {
+  background: color-mix(in srgb, var(--focus) 13%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 45%, var(--line));
 }
 
 .name-cell {
@@ -300,9 +522,11 @@ button {
 }
 
 .owner-cell {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.3rem;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  min-width: 0;
 }
 
 .owner-cell img {
@@ -314,6 +538,26 @@ button {
 .owner-avatar {
   border-radius: 999px;
   object-fit: cover;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 999px;
+  padding: 0 0.42rem;
+  background: color-mix(in srgb, var(--panel) 90%, var(--input));
+  color: var(--muted);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.user-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .more-cell {
@@ -439,6 +683,22 @@ button {
 .entry-context-menu button.danger.subtle {
   color: var(--text);
   border-color: var(--line-strong);
+}
+
+.selection-indicator {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 55;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(5px);
+  padding: 0.32rem 0.58rem;
+  font-size: 0.84rem;
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .rename-overlay {
@@ -866,6 +1126,7 @@ button {
 :host-context([data-theme='dark']) .info-button img,
 :host-context([data-theme='dark']) .quick-filters img,
 :host-context([data-theme='dark']) .sort-cell img,
+:host-context([data-theme='dark']) .column-sort-button img,
 :host-context([data-theme='dark']) .name-cell img,
 :host-context([data-theme='dark']) .grid-name img,
 :host-context([data-theme='dark']) .more-cell img {
@@ -883,7 +1144,7 @@ button {
 @media (max-width: 1050px) {
   .list-header,
   .list-row {
-    grid-template-columns: minmax(220px, 2fr) minmax(92px, 0.7fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) 34px 38px;
+    grid-template-columns: minmax(220px, 2fr) minmax(220px, 1.25fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) 34px 38px;
     font-size: 0.88rem;
   }
 }

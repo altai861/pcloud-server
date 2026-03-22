@@ -9,6 +9,49 @@ import { SharedResourceEntryDto } from '../../dto/shared-resource-entry.dto';
 import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 
+type FilterMenuKind = 'type' | 'people' | 'modified' | null;
+type NameSortOrder = 'asc' | 'desc';
+type ModifiedFilterValue = 'any' | 'last-day' | 'last-week' | 'last-month' | 'last-year';
+type TypeFilterValue =
+  | 'all'
+  | 'folder'
+  | 'file-any'
+  | 'image'
+  | 'document'
+  | 'pdf'
+  | 'spreadsheet'
+  | 'presentation'
+  | 'archive'
+  | 'audio'
+  | 'video'
+  | 'code';
+
+interface FilterOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+interface PeopleFilterOption {
+  userId: number;
+  username: string;
+}
+
+const IMAGE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif', 'tif', 'tiff', 'ico', 'avif'
+]);
+const DOCUMENT_EXTENSIONS = new Set([
+  'txt', 'md', 'rtf', 'doc', 'docx', 'odt', 'pages', 'epub', 'pdf'
+]);
+const PDF_EXTENSIONS = new Set(['pdf']);
+const SPREADSHEET_EXTENSIONS = new Set(['xls', 'xlsx', 'ods', 'csv', 'tsv', 'numbers']);
+const PRESENTATION_EXTENSIONS = new Set(['ppt', 'pptx', 'odp', 'key']);
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'wma']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'm4v']);
+const CODE_EXTENSIONS = new Set([
+  'rs', 'ts', 'js', 'jsx', 'tsx', 'html', 'css', 'scss', 'json', 'yaml', 'yml', 'xml', 'toml', 'go', 'java', 'py', 'c', 'cpp', 'h', 'hpp', 'php', 'sh'
+]);
+
 @Component({
   selector: 'app-shared-page',
   imports: [CommonModule],
@@ -30,6 +73,36 @@ export class SharedPageComponent implements OnInit, OnDestroy {
   entryMenuY = 0;
   entryMenuTarget: SharedResourceEntryDto | null = null;
 
+  activeFilterMenu: FilterMenuKind = null;
+  typeFilter: TypeFilterValue = 'all';
+  modifiedFilter: ModifiedFilterValue = 'any';
+  nameSortOrder: NameSortOrder = 'asc';
+  peopleSearchTerm = '';
+  selectedPeopleUserIds = new Set<number>();
+
+  readonly typeFilterOptions: FilterOption<TypeFilterValue>[] = [
+    { value: 'all', label: 'All resources' },
+    { value: 'folder', label: 'Folders only' },
+    { value: 'file-any', label: 'Any file' },
+    { value: 'image', label: 'Images' },
+    { value: 'document', label: 'Documents' },
+    { value: 'pdf', label: 'PDF files' },
+    { value: 'spreadsheet', label: 'Spreadsheets' },
+    { value: 'presentation', label: 'Presentations' },
+    { value: 'archive', label: 'Archives' },
+    { value: 'audio', label: 'Audio' },
+    { value: 'video', label: 'Video' },
+    { value: 'code', label: 'Code files' }
+  ];
+
+  readonly modifiedFilterOptions: FilterOption<ModifiedFilterValue>[] = [
+    { value: 'any', label: 'Any time' },
+    { value: 'last-day', label: 'Last day' },
+    { value: 'last-week', label: 'Last week' },
+    { value: 'last-month', label: 'Last month' },
+    { value: 'last-year', label: 'Last year' }
+  ];
+
   constructor(
     private readonly storageApiService: StorageApiService,
     private readonly sessionService: ClientSessionService,
@@ -44,6 +117,146 @@ export class SharedPageComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.loadSub?.unsubscribe();
     this.loadSub = null;
+  }
+
+  get displayEntries(): SharedResourceEntryDto[] {
+    let filtered = this.entries.filter((entry) => this.matchesTypeFilter(entry));
+
+    if (this.selectedPeopleUserIds.size > 0) {
+      filtered = filtered.filter(
+        (entry) =>
+          this.selectedPeopleUserIds.has(entry.ownerUserId) ||
+          (entry.createdByUserId !== null && this.selectedPeopleUserIds.has(entry.createdByUserId))
+      );
+    }
+
+    const modifiedThreshold = this.modifiedSinceThreshold();
+    if (modifiedThreshold !== null) {
+      filtered = filtered.filter((entry) => entry.dateSharedUnixMs >= modifiedThreshold);
+    }
+
+    const direction = this.nameSortOrder === 'asc' ? 1 : -1;
+    return [...filtered].sort((left, right) => {
+      const byName = left.name.localeCompare(right.name, undefined, {
+        sensitivity: 'base',
+        numeric: true
+      });
+
+      if (byName !== 0) {
+        return byName * direction;
+      }
+
+      if (left.resourceType !== right.resourceType) {
+        return left.resourceType === 'folder' ? -1 : 1;
+      }
+
+      return (left.resourceId - right.resourceId) * direction;
+    });
+  }
+
+  get peopleFilterOptions(): PeopleFilterOption[] {
+    const optionsById = new Map<number, string>();
+
+    for (const entry of this.entries) {
+      optionsById.set(entry.ownerUserId, entry.ownerUsername);
+
+      if (entry.createdByUserId !== null && Number.isFinite(entry.createdByUserId)) {
+        optionsById.set(entry.createdByUserId, entry.createdByUsername);
+      }
+    }
+
+    const normalizedSearch = this.peopleSearchTerm.trim().toLowerCase();
+
+    return Array.from(optionsById.entries())
+      .map(([userId, username]) => ({ userId, username }))
+      .filter((option) => {
+        if (normalizedSearch.length === 0) {
+          return true;
+        }
+
+        return option.username.toLowerCase().includes(normalizedSearch);
+      })
+      .sort((left, right) =>
+        left.username.localeCompare(right.username, undefined, { sensitivity: 'base' })
+      );
+  }
+
+  get typeFilterLabel(): string {
+    return this.typeFilterOptions.find((option) => option.value === this.typeFilter)?.label ?? 'Type';
+  }
+
+  get modifiedFilterLabel(): string {
+    return this.modifiedFilterOptions.find((option) => option.value === this.modifiedFilter)?.label ?? 'Modified';
+  }
+
+  get sortLabel(): string {
+    return this.nameSortOrder === 'asc' ? 'A-Z' : 'Z-A';
+  }
+
+  get hasActiveFilters(): boolean {
+    return (
+      this.typeFilter !== 'all' ||
+      this.modifiedFilter !== 'any' ||
+      this.selectedPeopleUserIds.size > 0
+    );
+  }
+
+  toggleFilterMenu(kind: Exclude<FilterMenuKind, null>, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.activeFilterMenu = this.activeFilterMenu === kind ? null : kind;
+    this.cdr.detectChanges();
+  }
+
+  closeFilterMenu(): void {
+    this.activeFilterMenu = null;
+  }
+
+  setTypeFilter(value: TypeFilterValue): void {
+    this.typeFilter = value;
+    this.cdr.detectChanges();
+  }
+
+  setModifiedFilter(value: ModifiedFilterValue): void {
+    this.modifiedFilter = value;
+    this.cdr.detectChanges();
+  }
+
+  isPeopleSelected(userId: number): boolean {
+    return this.selectedPeopleUserIds.has(userId);
+  }
+
+  togglePeopleSelection(userId: number): void {
+    if (this.selectedPeopleUserIds.has(userId)) {
+      this.selectedPeopleUserIds.delete(userId);
+    } else {
+      this.selectedPeopleUserIds.add(userId);
+    }
+
+    this.cdr.detectChanges();
+  }
+
+  clearPeopleSelection(): void {
+    if (this.selectedPeopleUserIds.size === 0) {
+      return;
+    }
+
+    this.selectedPeopleUserIds.clear();
+    this.cdr.detectChanges();
+  }
+
+  clearAllFilters(): void {
+    this.typeFilter = 'all';
+    this.modifiedFilter = 'any';
+    this.selectedPeopleUserIds.clear();
+    this.peopleSearchTerm = '';
+    this.activeFilterMenu = null;
+    this.cdr.detectChanges();
+  }
+
+  toggleSortOrder(): void {
+    this.nameSortOrder = this.nameSortOrder === 'asc' ? 'desc' : 'asc';
+    this.cdr.detectChanges();
   }
 
   openEntry(entry: SharedResourceEntryDto): void {
@@ -126,7 +339,11 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     return !this.entryMenuTarget || this.entryMenuTarget.resourceType !== 'file';
   }
 
-  ownerAvatarSrc(ownerUserId: number): string {
+  ownerAvatarSrc(ownerUserId: number | null): string {
+    if (ownerUserId === null || !Number.isFinite(ownerUserId)) {
+      return 'profile.png';
+    }
+
     if (this.ownerAvatarFallbackIds.has(ownerUserId)) {
       return 'profile.png';
     }
@@ -147,8 +364,10 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     return src;
   }
 
-  onOwnerAvatarError(event: Event, ownerUserId: number): void {
-    this.ownerAvatarFallbackIds.add(ownerUserId);
+  onOwnerAvatarError(event: Event, ownerUserId: number | null): void {
+    if (ownerUserId !== null && Number.isFinite(ownerUserId)) {
+      this.ownerAvatarFallbackIds.add(ownerUserId);
+    }
 
     const image = event.target as HTMLImageElement | null;
     if (image) {
@@ -156,7 +375,11 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  isDefaultOwnerAvatar(ownerUserId: number): boolean {
+  isDefaultOwnerAvatar(ownerUserId: number | null): boolean {
+    if (ownerUserId === null || !Number.isFinite(ownerUserId)) {
+      return true;
+    }
+
     return this.ownerAvatarFallbackIds.has(ownerUserId);
   }
 
@@ -179,18 +402,31 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     }).format(date);
   }
 
-  @HostListener('document:click')
-  onDocumentClick(): void {
-    if (!this.isEntryMenuOpen) {
-      return;
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    const clickedInsideMenu = !!target?.closest('.entry-context-menu');
+    const clickedInsideFilters = !!target?.closest('.shared-filters');
+
+    if (this.isEntryMenuOpen && !clickedInsideMenu) {
+      this.closeEntryMenu();
+      this.cdr.detectChanges();
     }
 
-    this.closeEntryMenu();
-    this.cdr.detectChanges();
+    if (this.activeFilterMenu !== null && !clickedInsideFilters) {
+      this.closeFilterMenu();
+      this.cdr.detectChanges();
+    }
   }
 
   @HostListener('document:keydown.escape')
   onEscapePressed(): void {
+    if (this.activeFilterMenu !== null) {
+      this.closeFilterMenu();
+      this.cdr.detectChanges();
+      return;
+    }
+
     if (!this.isEntryMenuOpen) {
       return;
     }
@@ -256,6 +492,80 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     this.entryMenuTarget = entry;
     this.isEntryMenuOpen = true;
     this.cdr.detectChanges();
+  }
+
+  private matchesTypeFilter(entry: SharedResourceEntryDto): boolean {
+    if (this.typeFilter === 'all') {
+      return true;
+    }
+
+    if (this.typeFilter === 'folder') {
+      return entry.resourceType === 'folder';
+    }
+
+    if (entry.resourceType !== 'file') {
+      return false;
+    }
+
+    if (this.typeFilter === 'file-any') {
+      return true;
+    }
+
+    const extension = this.fileExtension(entry.name);
+    if (!extension) {
+      return false;
+    }
+
+    switch (this.typeFilter) {
+      case 'image':
+        return IMAGE_EXTENSIONS.has(extension);
+      case 'document':
+        return DOCUMENT_EXTENSIONS.has(extension);
+      case 'pdf':
+        return PDF_EXTENSIONS.has(extension);
+      case 'spreadsheet':
+        return SPREADSHEET_EXTENSIONS.has(extension);
+      case 'presentation':
+        return PRESENTATION_EXTENSIONS.has(extension);
+      case 'archive':
+        return ARCHIVE_EXTENSIONS.has(extension);
+      case 'audio':
+        return AUDIO_EXTENSIONS.has(extension);
+      case 'video':
+        return VIDEO_EXTENSIONS.has(extension);
+      case 'code':
+        return CODE_EXTENSIONS.has(extension);
+      default:
+        return true;
+    }
+  }
+
+  private modifiedSinceThreshold(): number | null {
+    const now = Date.now();
+
+    switch (this.modifiedFilter) {
+      case 'last-day':
+        return now - 24 * 60 * 60 * 1000;
+      case 'last-week':
+        return now - 7 * 24 * 60 * 60 * 1000;
+      case 'last-month':
+        return now - 30 * 24 * 60 * 60 * 1000;
+      case 'last-year':
+        return now - 365 * 24 * 60 * 60 * 1000;
+      default:
+        return null;
+    }
+  }
+
+  private fileExtension(fileName: string): string | null {
+    const normalizedName = fileName.trim().toLowerCase();
+    const dotIndex = normalizedName.lastIndexOf('.');
+
+    if (dotIndex <= 0 || dotIndex >= normalizedName.length - 1) {
+      return null;
+    }
+
+    return normalizedName.slice(dotIndex + 1);
   }
 
   private redirectToLogin(): void {

@@ -99,9 +99,9 @@ pub async fn initialize(pool: &PgPool, payload: SetupInitializeRequest) -> Resul
 
     let admin_root_folder_id = sqlx::query_scalar::<_, i64>(
         "
-        INSERT INTO folders (owner_user_id, parent_folder_id, name, path)
+        INSERT INTO folders (owner_user_id, created_by_user_id, parent_folder_id, name, path)
         -- Path is logical inside user's own namespace. Physical root is <storage_root>/users/<id>.
-        VALUES ($1, NULL, '/', '/')
+        VALUES ($1, $1, NULL, '/', '/')
         RETURNING id
         ",
     )

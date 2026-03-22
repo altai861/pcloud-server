@@ -2,20 +2,30 @@ use crate::{
     error::ApiError,
     modules::{auth::service::AuthenticatedUser, storage::dto::StorageEntryDto},
 };
+use rand_core::{OsRng, RngCore};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use std::{
+    collections::HashSet,
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
+use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 const MAX_UPLOAD_SIZE_BYTES: i64 = 5 * 1024 * 1024 * 1024;
+const DEFAULT_STORAGE_LIST_LIMIT: i64 = 200;
+const MAX_STORAGE_LIST_LIMIT: i64 = 500;
+const DEFAULT_SEARCH_LIST_LIMIT: i64 = 120;
+const MAX_SEARCH_LIST_LIMIT: i64 = 300;
 
 #[derive(Debug, Clone)]
 pub struct StorageListQuery {
     pub path: Option<String>,
     pub folder_id: Option<i64>,
     pub search: Option<String>,
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +50,12 @@ pub struct UploadFileInput {
 pub struct DownloadFileQuery {
     pub path: Option<String>,
     pub file_id: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BatchDownloadItemInput {
+    pub resource_type: StorageEntryKind,
+    pub resource_id: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +121,8 @@ struct StorageEntryRow {
     entry_type: String,
     owner_user_id: i64,
     owner_username: String,
+    created_by_user_id: Option<i64>,
+    created_by_username: String,
     is_starred: bool,
     size_bytes: Option<i64>,
     modified_at_unix_ms: i64,
@@ -127,6 +145,12 @@ struct DownloadFileRow {
     mime_type: Option<String>,
     original_file_name: Option<String>,
     name: String,
+}
+
+#[derive(Debug, FromRow)]
+struct BatchFileDownloadRow {
+    storage_path: String,
+    logical_path: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -176,6 +200,7 @@ struct TrashedFolderRestoreRow {
 struct RenameFileRow {
     id: i64,
     owner_user_id: i64,
+    created_by_user_id: Option<i64>,
     name: String,
     is_starred: bool,
     storage_path: String,
@@ -187,6 +212,7 @@ struct RenameFileRow {
 struct RenameFileAccessRow {
     id: i64,
     owner_user_id: i64,
+    created_by_user_id: Option<i64>,
     name: String,
     is_starred: bool,
     storage_path: String,
@@ -199,6 +225,7 @@ struct RenameFileAccessRow {
 struct RenameFolderRow {
     id: i64,
     owner_user_id: i64,
+    created_by_user_id: Option<i64>,
     name: String,
     is_starred: bool,
     path: String,
@@ -213,8 +240,27 @@ struct SharedResourceRow {
     path: String,
     owner_user_id: i64,
     owner_username: String,
+    created_by_user_id: Option<i64>,
+    created_by_username: String,
     privilege_type: String,
     date_shared_unix_ms: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct SearchResourceRow {
+    resource_type: String,
+    resource_id: i64,
+    name: String,
+    path: String,
+    owner_user_id: i64,
+    owner_username: String,
+    created_by_user_id: Option<i64>,
+    created_by_username: String,
+    source_context: String,
+    navigate_folder_id: i64,
+    size_bytes: Option<i64>,
+    modified_at_unix_ms: i64,
+    access_rank: i32,
 }
 
 #[derive(Debug, FromRow)]
@@ -277,6 +323,8 @@ pub struct StorageListResult {
     pub parent_path: Option<String>,
     pub current_privilege: String,
     pub entries: Vec<StorageEntryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
     pub total_storage_limit_bytes: Option<i64>,
     pub total_storage_used_bytes: i64,
     pub user_storage_quota_bytes: i64,
@@ -301,6 +349,13 @@ pub struct DownloadFileResult {
     pub absolute_path: PathBuf,
     pub mime_type: Option<String>,
     pub download_name: String,
+}
+
+#[derive(Debug)]
+pub struct BatchDownloadResult {
+    pub archive_name: String,
+    pub archive_path: PathBuf,
+    pub archive_size_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -342,8 +397,35 @@ pub struct SharedResourceEntryResult {
     pub path: String,
     pub owner_user_id: i64,
     pub owner_username: String,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
     pub privilege_type: String,
     pub date_shared_unix_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct SearchResourceEntryResult {
+    pub resource_type: String,
+    pub resource_id: i64,
+    pub name: String,
+    pub path: String,
+    pub owner_user_id: i64,
+    pub owner_username: String,
+    pub created_by_user_id: Option<i64>,
+    pub created_by_username: String,
+    pub source_context: String,
+    pub privilege_type: String,
+    pub navigate_folder_id: i64,
+    pub size_bytes: Option<i64>,
+    pub modified_at_unix_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct SearchResourcesResult {
+    pub query: String,
+    pub entries: Vec<SearchResourceEntryResult>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
 }
 
 #[derive(Debug)]
@@ -394,8 +476,18 @@ pub async fn list_user_storage(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let storage_entries =
-        load_storage_entries(pool, current_folder.id, &current_folder.path, search).await?;
+    let page_limit = normalize_storage_list_limit(query.limit);
+    let page_offset = parse_storage_list_cursor(query.cursor.as_deref())?;
+
+    let (storage_entries, next_cursor, has_more) = load_storage_entries(
+        pool,
+        current_folder.id,
+        &current_folder.path,
+        search,
+        page_limit,
+        page_offset,
+    )
+    .await?;
 
     let entries = storage_entries
         .into_iter()
@@ -406,6 +498,8 @@ pub async fn list_user_storage(
             entry_type: entry.entry_type,
             owner_user_id: entry.owner_user_id,
             owner_username: entry.owner_username,
+            created_by_user_id: entry.created_by_user_id,
+            created_by_username: entry.created_by_username,
             is_starred: entry.is_starred,
             size_bytes: entry.size_bytes,
             modified_at_unix_ms: Some(entry.modified_at_unix_ms),
@@ -421,6 +515,8 @@ pub async fn list_user_storage(
         parent_path: parent_api_path(&current_path),
         current_privilege: current_access.as_str().to_owned(),
         entries,
+        next_cursor,
+        has_more,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
         user_storage_quota_bytes: current_user.user.storage_quota_bytes,
@@ -455,6 +551,8 @@ pub async fn list_user_trash(
         parent_path: None,
         current_privilege: "owner".to_owned(),
         entries,
+        next_cursor: None,
+        has_more: false,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
         user_storage_quota_bytes: current_user.user.storage_quota_bytes,
@@ -489,6 +587,8 @@ pub async fn list_user_starred(
         parent_path: None,
         current_privilege: "owner".to_owned(),
         entries,
+        next_cursor: None,
+        has_more: false,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
         user_storage_quota_bytes: current_user.user.storage_quota_bytes,
@@ -515,6 +615,8 @@ pub async fn list_shared_with_user(
             entries.path,
             entries.owner_user_id,
             entries.owner_username,
+            entries.created_by_user_id,
+            entries.created_by_username,
             entries.privilege_type,
             entries.date_shared_unix_ms
         FROM (
@@ -525,6 +627,8 @@ pub async fn list_shared_with_user(
                 folder.path,
                 folder.owner_user_id,
                 owner_user.username AS owner_username,
+                folder.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 CASE
                     WHEN BOOL_OR(lower(folder_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
                     ELSE 'viewer'
@@ -535,6 +639,8 @@ pub async fn list_shared_with_user(
                 ON folder.id = folder_perm.folder_id
             INNER JOIN users owner_user
                 ON owner_user.id = folder.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = folder.created_by_user_id
             WHERE folder_perm.user_id = $1
               AND folder.owner_user_id <> $1
               AND folder.is_deleted = false
@@ -543,7 +649,14 @@ pub async fn list_shared_with_user(
                   OR folder.name ILIKE '%' || $2 || '%'
                   OR owner_user.username ILIKE '%' || $2 || '%'
               )
-            GROUP BY folder.id, folder.name, folder.path, folder.owner_user_id, owner_user.username
+            GROUP BY
+                folder.id,
+                folder.name,
+                folder.path,
+                folder.owner_user_id,
+                owner_user.username,
+                folder.created_by_user_id,
+                creator_user.username
 
             UNION ALL
 
@@ -557,6 +670,8 @@ pub async fn list_shared_with_user(
                 END AS path,
                 file_row.owner_user_id,
                 owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 CASE
                     WHEN BOOL_OR(lower(file_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
                     ELSE 'viewer'
@@ -569,6 +684,8 @@ pub async fn list_shared_with_user(
                 ON folder.id = file_row.folder_id
             INNER JOIN users owner_user
                 ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
             WHERE file_perm.user_id = $1
               AND file_row.owner_user_id <> $1
               AND file_row.is_deleted = false
@@ -578,7 +695,14 @@ pub async fn list_shared_with_user(
                   OR file_row.name ILIKE '%' || $2 || '%'
                   OR owner_user.username ILIKE '%' || $2 || '%'
               )
-            GROUP BY file_row.id, file_row.name, folder.path, file_row.owner_user_id, owner_user.username
+            GROUP BY
+                file_row.id,
+                file_row.name,
+                folder.path,
+                file_row.owner_user_id,
+                owner_user.username,
+                file_row.created_by_user_id,
+                creator_user.username
         ) entries
         ORDER BY entries.date_shared_unix_ms DESC, LOWER(entries.name), entries.name
         "#,
@@ -598,6 +722,8 @@ pub async fn list_shared_with_user(
             path: normalize_db_path(&row.path),
             owner_user_id: row.owner_user_id,
             owner_username: row.owner_username,
+            created_by_user_id: row.created_by_user_id,
+            created_by_username: row.created_by_username,
             privilege_type: row.privilege_type,
             date_shared_unix_ms: row.date_shared_unix_ms,
         })
@@ -873,6 +999,69 @@ pub async fn remove_share_permission(
     }
 
     Ok(())
+}
+
+pub async fn search_resources(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    query: Option<String>,
+    limit: Option<i64>,
+    cursor: Option<String>,
+) -> Result<SearchResourcesResult, ApiError> {
+    let normalized_query = query
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+
+    if normalized_query.is_empty() {
+        return Ok(SearchResourcesResult {
+            query: String::new(),
+            entries: Vec::new(),
+            next_cursor: None,
+            has_more: false,
+        });
+    }
+
+    let search_pattern = format!("%{normalized_query}%");
+    let page_limit = normalize_search_list_limit(limit);
+    let page_offset = parse_storage_list_cursor(cursor.as_deref())?;
+
+    let (rows, next_cursor, has_more) = load_search_entries(
+        pool,
+        current_user.user.id,
+        &search_pattern,
+        page_limit,
+        page_offset,
+    )
+    .await?;
+
+    let entries = rows
+        .into_iter()
+        .map(|row| SearchResourceEntryResult {
+            resource_type: row.resource_type,
+            resource_id: row.resource_id,
+            name: row.name,
+            path: normalize_db_path(&row.path),
+            owner_user_id: row.owner_user_id,
+            owner_username: row.owner_username,
+            created_by_user_id: row.created_by_user_id,
+            created_by_username: row.created_by_username,
+            source_context: row.source_context,
+            privilege_type: access_level_from_rank(row.access_rank)
+                .map(|level| level.as_str().to_owned())
+                .unwrap_or_else(|| "viewer".to_owned()),
+            navigate_folder_id: row.navigate_folder_id,
+            size_bytes: row.size_bytes,
+            modified_at_unix_ms: row.modified_at_unix_ms,
+        })
+        .collect();
+
+    Ok(SearchResourcesResult {
+        query: normalized_query,
+        entries,
+        next_cursor,
+        has_more,
+    })
 }
 
 pub async fn search_shareable_users(
@@ -1240,6 +1429,180 @@ pub async fn resolve_file_download(
     })
 }
 
+pub async fn build_batch_download_archive(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    items: Vec<BatchDownloadItemInput>,
+) -> Result<BatchDownloadResult, ApiError> {
+    if items.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one resource must be selected for batch download".to_owned(),
+        ));
+    }
+
+    if items.len() > 1000 {
+        return Err(ApiError::BadRequest(
+            "Too many resources selected for one batch download".to_owned(),
+        ));
+    }
+
+    let settings = load_system_storage_settings(pool).await?;
+    let mut archive_sources: Vec<(PathBuf, String)> = Vec::new();
+    let mut seen_resource_ids: HashSet<(i64, &'static str)> = HashSet::new();
+
+    for item in items {
+        let kind = match item.resource_type {
+            StorageEntryKind::Folder => "folder",
+            StorageEntryKind::File => "file",
+        };
+
+        if !seen_resource_ids.insert((item.resource_id, kind)) {
+            continue;
+        }
+
+        match item.resource_type {
+            StorageEntryKind::Folder => {
+                let (folder, _access) =
+                    load_accessible_folder_by_id(pool, current_user.user.id, item.resource_id)
+                        .await?;
+
+                let folder_label = folder_download_label(&folder.path);
+                let folder_files = load_folder_files_for_batch_download(
+                    pool,
+                    folder.owner_user_id,
+                    &folder.path,
+                )
+                .await?;
+
+                for file in folder_files {
+                    let absolute = PathBuf::from(&settings.storage_root_path)
+                        .join(file.storage_path.trim_start_matches('/'));
+
+                    if !absolute.is_file() {
+                        continue;
+                    }
+
+                    let relative_inside_folder =
+                        strip_folder_prefix(&file.logical_path, &folder.path);
+                    let entry_path = if relative_inside_folder.is_empty() {
+                        folder_label.clone()
+                    } else {
+                        format!("{folder_label}/{relative_inside_folder}")
+                    };
+
+                    archive_sources.push((absolute, entry_path));
+                }
+            }
+            StorageEntryKind::File => {
+                let file = load_accessible_file_by_id_for_batch_download(
+                    pool,
+                    current_user.user.id,
+                    item.resource_id,
+                )
+                .await?;
+
+                let absolute =
+                    PathBuf::from(&settings.storage_root_path).join(file.storage_path.trim_start_matches('/'));
+                if !absolute.is_file() {
+                    continue;
+                }
+
+                archive_sources.push((absolute, file_download_label(&file.logical_path)));
+            }
+        }
+    }
+
+    if archive_sources.is_empty() {
+        return Err(ApiError::BadRequest(
+            "No downloadable files were found for the selected resources".to_owned(),
+        ));
+    }
+
+    let unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let archive_name = format!("pcloud-batch-{unix_seconds}.zip");
+    let archive_root = PathBuf::from(&settings.storage_root_path)
+        .join("app-data")
+        .join("tmp")
+        .join("batch-downloads");
+
+    fs::create_dir_all(&archive_root).map_err(|_| {
+        ApiError::internal_with_context("Failed to create temporary archive directory")
+    })?;
+
+    let mut random = [0_u8; 8];
+    OsRng.fill_bytes(&mut random);
+    let random_hex = hex::encode(random);
+    let archive_path = archive_root.join(format!(
+        "batch-u{}-{unix_seconds}-{random_hex}.zip",
+        current_user.user.id
+    ));
+
+    let archive_path_for_task = archive_path.clone();
+
+    let build_task = tokio::task::spawn_blocking(move || -> Result<u64, ApiError> {
+        let archive_file = std::fs::File::create(&archive_path_for_task).map_err(|_| {
+            ApiError::internal_with_context("Failed to create temporary archive file")
+        })?;
+        let mut zip_writer = ZipWriter::new(archive_file);
+        let file_options = FileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+
+        let mut used_paths: HashSet<String> = HashSet::new();
+
+        for (absolute_path, raw_zip_path) in archive_sources {
+            let normalized_path = normalize_zip_entry_path(&raw_zip_path);
+            if normalized_path.is_empty() {
+                continue;
+            }
+
+            let unique_path = make_unique_zip_entry_path(&normalized_path, &mut used_paths);
+
+            zip_writer
+                .start_file(&unique_path, file_options)
+                .map_err(|_| ApiError::internal_with_context("Failed to create archive entry"))?;
+
+            let mut source_file = std::fs::File::open(&absolute_path).map_err(|_| {
+                ApiError::internal_with_context("Failed to open file for archive creation")
+            })?;
+            std::io::copy(&mut source_file, &mut zip_writer).map_err(|_| {
+                ApiError::internal_with_context("Failed to write file into archive")
+            })?;
+        }
+
+        let archive_file = zip_writer
+            .finish()
+            .map_err(|_| ApiError::internal_with_context("Failed to finalize download archive"))?;
+        let archive_size_bytes = archive_file
+            .metadata()
+            .map_err(|_| {
+                ApiError::internal_with_context("Failed to read temporary archive file metadata")
+            })?
+            .len();
+
+        Ok(archive_size_bytes)
+    })
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to build batch download archive"))?;
+
+    let archive_size_bytes = match build_task {
+        Ok(size) => size,
+        Err(error) => {
+            let _ = fs::remove_file(&archive_path);
+            return Err(error);
+        }
+    };
+
+    Ok(BatchDownloadResult {
+        archive_name,
+        archive_path,
+        archive_size_bytes,
+    })
+}
+
 pub async fn create_folder(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
@@ -1277,8 +1640,8 @@ pub async fn create_folder(
 
     let inserted = sqlx::query_as::<_, StorageEntryRow>(
         r#"
-        INSERT INTO folders (owner_user_id, parent_folder_id, name, path, is_deleted)
-        VALUES ($1, $2, $3, $4, false)
+        INSERT INTO folders (owner_user_id, created_by_user_id, parent_folder_id, name, path, is_deleted)
+        VALUES ($1, $2, $3, $4, $5, false)
         RETURNING
             id,
             name,
@@ -1286,12 +1649,15 @@ pub async fn create_folder(
             'folder'::TEXT AS entry_type,
             owner_user_id,
             (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
+            created_by_user_id,
+            COALESCE((SELECT username FROM users WHERE users.id = created_by_user_id), 'Deleted user') AS created_by_username,
             is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
     .bind(owner_user_id)
+    .bind(current_user.user.id)
     .bind(parent_folder.id)
     .bind(&folder_name)
     .bind(&child_path)
@@ -1462,6 +1828,7 @@ pub async fn upload_file(
         r#"
         INSERT INTO files (
             owner_user_id,
+            created_by_user_id,
             folder_id,
             name,
             original_file_name,
@@ -1472,23 +1839,26 @@ pub async fn upload_file(
             checksum,
             is_deleted
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false)
         RETURNING
             id,
             name,
             CASE
-                WHEN $10::TEXT = '/' THEN '/' || name
-                ELSE $10::TEXT || '/' || name
+                WHEN $11::TEXT = '/' THEN '/' || name
+                ELSE $11::TEXT || '/' || name
             END AS path,
             'file'::TEXT AS entry_type,
             owner_user_id,
             (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
+            created_by_user_id,
+            COALESCE((SELECT username FROM users WHERE users.id = created_by_user_id), 'Deleted user') AS created_by_username,
             is_starred,
             size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
     .bind(owner_user_id)
+    .bind(current_user.user.id)
     .bind(target_folder.id)
     .bind(&file_name)
     .bind(&file_name)
@@ -1583,6 +1953,12 @@ pub async fn rename_file(
             entry_type: "file".to_owned(),
             owner_user_id: target_file.owner_user_id,
             owner_username: lookup_username_by_id_tx(&mut tx, target_file.owner_user_id).await?,
+            created_by_user_id: target_file.created_by_user_id,
+            created_by_username: lookup_optional_username_by_id_tx(
+                &mut tx,
+                target_file.created_by_user_id,
+            )
+            .await?,
             is_starred: target_file.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
@@ -1636,6 +2012,8 @@ pub async fn rename_file(
                 'file'::TEXT AS entry_type,
                 owner_user_id,
                 (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
+                created_by_user_id,
+                COALESCE((SELECT username FROM users WHERE users.id = created_by_user_id), 'Deleted user') AS created_by_username,
                 is_starred,
                 size_bytes,
                 (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -1711,6 +2089,12 @@ pub async fn rename_folder(
             entry_type: "folder".to_owned(),
             owner_user_id: target_folder.owner_user_id,
             owner_username: lookup_username_by_id_tx(&mut tx, target_folder.owner_user_id).await?,
+            created_by_user_id: target_folder.created_by_user_id,
+            created_by_username: lookup_optional_username_by_id_tx(
+                &mut tx,
+                target_folder.created_by_user_id,
+            )
+            .await?,
             is_starred: target_folder.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
@@ -1831,6 +2215,8 @@ pub async fn rename_folder(
             'folder'::TEXT AS entry_type,
             owner_user_id,
             (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
+            created_by_user_id,
+            COALESCE((SELECT username FROM users WHERE users.id = created_by_user_id), 'Deleted user') AS created_by_username,
             is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -1898,6 +2284,8 @@ pub async fn set_starred(
                     'folder'::TEXT AS entry_type,
                     owner_user_id,
                     (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
+                    created_by_user_id,
+                    COALESCE((SELECT username FROM users WHERE users.id = created_by_user_id), 'Deleted user') AS created_by_username,
                     is_starred,
                     NULL::BIGINT AS size_bytes,
                     (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -1947,6 +2335,8 @@ pub async fn set_starred(
                     'file'::TEXT AS entry_type,
                     files.owner_user_id,
                     (SELECT username FROM users WHERE users.id = files.owner_user_id) AS owner_username,
+                    files.created_by_user_id,
+                    COALESCE((SELECT username FROM users WHERE users.id = files.created_by_user_id), 'Deleted user') AS created_by_username,
                     files.is_starred,
                     files.size_bytes,
                     (EXTRACT(EPOCH FROM files.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -2788,6 +3178,7 @@ async fn load_file_for_rename_tx(
         SELECT
             file_row.id,
             file_row.owner_user_id,
+            file_row.created_by_user_id,
             file_row.name,
             file_row.is_starred,
             file_row.storage_path,
@@ -2827,6 +3218,7 @@ async fn load_folder_for_rename_tx(
         SELECT
             id,
             owner_user_id,
+            created_by_user_id,
             name,
             is_starred,
             path,
@@ -2855,6 +3247,7 @@ async fn load_folder_for_rename_by_id_tx(
         SELECT
             id,
             owner_user_id,
+            created_by_user_id,
             name,
             is_starred,
             path,
@@ -2900,6 +3293,7 @@ async fn load_accessible_file_for_rename_by_id_tx(
         SELECT
             file_row.id,
             file_row.owner_user_id,
+            file_row.created_by_user_id,
             file_row.name,
             file_row.is_starred,
             file_row.storage_path,
@@ -2965,6 +3359,7 @@ async fn load_accessible_file_for_rename_by_id_tx(
         RenameFileRow {
             id: row.id,
             owner_user_id: row.owner_user_id,
+            created_by_user_id: row.created_by_user_id,
             name: row.name,
             is_starred: row.is_starred,
             storage_path: row.storage_path,
@@ -3123,8 +3518,10 @@ async fn load_storage_entries(
     parent_folder_id: i64,
     parent_folder_path: &str,
     search: Option<&str>,
-) -> Result<Vec<StorageEntryRow>, ApiError> {
-    sqlx::query_as::<_, StorageEntryRow>(
+    page_limit: i64,
+    page_offset: i64,
+) -> Result<(Vec<StorageEntryRow>, Option<String>, bool), ApiError> {
+    let mut rows = sqlx::query_as::<_, StorageEntryRow>(
         r#"
         SELECT
             entries.id,
@@ -3133,6 +3530,8 @@ async fn load_storage_entries(
             entries.entry_type,
             entries.owner_user_id,
             entries.owner_username,
+            entries.created_by_user_id,
+            entries.created_by_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
@@ -3144,12 +3543,16 @@ async fn load_storage_entries(
                 'folder'::TEXT AS entry_type,
                 f.owner_user_id,
                 owner_user.username AS owner_username,
+                f.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 f.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM f.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders f
             INNER JOIN users owner_user
                 ON owner_user.id = f.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = f.created_by_user_id
             WHERE f.parent_folder_id = $1
               AND f.is_deleted = false
               AND ($2::TEXT IS NULL OR f.name ILIKE '%' || $2 || '%')
@@ -3166,12 +3569,16 @@ async fn load_storage_entries(
                 'file'::TEXT AS entry_type,
                 file_row.owner_user_id,
                 owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
             INNER JOIN users owner_user
                 ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
             WHERE file_row.folder_id = $1
               AND file_row.is_deleted = false
               AND ($2::TEXT IS NULL OR file_row.name ILIKE '%' || $2 || '%')
@@ -3179,15 +3586,340 @@ async fn load_storage_entries(
         ORDER BY
             CASE WHEN entries.entry_type = 'folder' THEN 0 ELSE 1 END,
             LOWER(entries.name),
-            entries.name
+            entries.name,
+            entries.id
+        LIMIT $4
+        OFFSET $5
         "#,
     )
     .bind(parent_folder_id)
     .bind(search)
     .bind(parent_folder_path)
+    .bind(page_limit + 1)
+    .bind(page_offset)
     .fetch_all(pool)
     .await
-    .map_err(|_| ApiError::internal_with_context("Failed to load storage listing"))
+    .map_err(|_| ApiError::internal_with_context("Failed to load storage listing"))?;
+
+    let has_more = rows.len() as i64 > page_limit;
+    if has_more {
+        rows.truncate(page_limit as usize);
+    }
+
+    let next_cursor = if has_more {
+        Some((page_offset + page_limit).to_string())
+    } else {
+        None
+    };
+
+    Ok((rows, next_cursor, has_more))
+}
+
+async fn load_search_entries(
+    pool: &PgPool,
+    user_id: i64,
+    search_pattern: &str,
+    page_limit: i64,
+    page_offset: i64,
+) -> Result<(Vec<SearchResourceRow>, Option<String>, bool), ApiError> {
+    let mut rows = sqlx::query_as::<_, SearchResourceRow>(
+        r#"
+        WITH candidate_entries AS (
+            SELECT
+                'folder'::TEXT AS resource_type,
+                folder.id AS resource_id,
+                folder.name,
+                folder.path,
+                folder.owner_user_id,
+                owner_user.username AS owner_username,
+                folder.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
+                'storage'::TEXT AS source_context,
+                COALESCE(folder.parent_folder_id, folder.id) AS navigate_folder_id,
+                NULL::BIGINT AS size_bytes,
+                (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
+                3::INT AS access_rank
+            FROM folders folder
+            INNER JOIN users owner_user
+                ON owner_user.id = folder.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = folder.created_by_user_id
+            WHERE folder.owner_user_id = $1
+              AND folder.is_deleted = false
+              AND (
+                  folder.name ILIKE $2
+                  OR folder.path ILIKE $2
+                  OR owner_user.username ILIKE $2
+                  OR COALESCE(creator_user.username, 'Deleted user') ILIKE $2
+              )
+
+            UNION ALL
+
+            SELECT
+                'file'::TEXT AS resource_type,
+                file_row.id AS resource_id,
+                file_row.name,
+                CASE
+                    WHEN folder.path = '/' THEN '/' || file_row.name
+                    ELSE folder.path || '/' || file_row.name
+                END AS path,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
+                'storage'::TEXT AS source_context,
+                file_row.folder_id AS navigate_folder_id,
+                file_row.size_bytes,
+                (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
+                3::INT AS access_rank
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
+            WHERE file_row.owner_user_id = $1
+              AND folder.owner_user_id = $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND (
+                  file_row.name ILIKE $2
+                  OR (
+                      CASE
+                          WHEN folder.path = '/' THEN '/' || file_row.name
+                          ELSE folder.path || '/' || file_row.name
+                      END
+                  ) ILIKE $2
+                  OR owner_user.username ILIKE $2
+                  OR COALESCE(creator_user.username, 'Deleted user') ILIKE $2
+              )
+
+            UNION ALL
+
+            SELECT
+                'folder'::TEXT AS resource_type,
+                folder.id AS resource_id,
+                folder.name,
+                folder.path,
+                folder.owner_user_id,
+                owner_user.username AS owner_username,
+                folder.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
+                'shared'::TEXT AS source_context,
+                COALESCE(folder.parent_folder_id, folder.id) AS navigate_folder_id,
+                NULL::BIGINT AS size_bytes,
+                (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM folder_permissions folder_perm
+                        INNER JOIN folders permission_folder
+                            ON permission_folder.id = folder_perm.folder_id
+                        WHERE folder_perm.user_id = $1
+                          AND permission_folder.is_deleted = false
+                          AND permission_folder.owner_user_id = folder.owner_user_id
+                          AND (
+                              permission_folder.path = '/'
+                              OR folder.path = permission_folder.path
+                              OR folder.path LIKE permission_folder.path || '/%'
+                          )
+                          AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                    ) THEN 2
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM folder_permissions folder_perm
+                        INNER JOIN folders permission_folder
+                            ON permission_folder.id = folder_perm.folder_id
+                        WHERE folder_perm.user_id = $1
+                          AND permission_folder.is_deleted = false
+                          AND permission_folder.owner_user_id = folder.owner_user_id
+                          AND (
+                              permission_folder.path = '/'
+                              OR folder.path = permission_folder.path
+                              OR folder.path LIKE permission_folder.path || '/%'
+                          )
+                          AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                    ) THEN 1
+                    ELSE 0
+                END AS access_rank
+            FROM folders folder
+            INNER JOIN users owner_user
+                ON owner_user.id = folder.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = folder.created_by_user_id
+            WHERE folder.owner_user_id <> $1
+              AND folder.is_deleted = false
+              AND (
+                  folder.name ILIKE $2
+                  OR folder.path ILIKE $2
+                  OR owner_user.username ILIKE $2
+                  OR COALESCE(creator_user.username, 'Deleted user') ILIKE $2
+              )
+
+            UNION ALL
+
+            SELECT
+                'file'::TEXT AS resource_type,
+                file_row.id AS resource_id,
+                file_row.name,
+                CASE
+                    WHEN folder.path = '/' THEN '/' || file_row.name
+                    ELSE folder.path || '/' || file_row.name
+                END AS path,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
+                'shared'::TEXT AS source_context,
+                file_row.folder_id AS navigate_folder_id,
+                file_row.size_bytes,
+                (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM file_permissions file_perm
+                        WHERE file_perm.file_id = file_row.id
+                          AND file_perm.user_id = $1
+                          AND lower(file_perm.privilege_type) IN ('editor', 'edit')
+                    ) THEN 2
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM folder_permissions folder_perm
+                        INNER JOIN folders permission_folder
+                            ON permission_folder.id = folder_perm.folder_id
+                        WHERE folder_perm.user_id = $1
+                          AND permission_folder.is_deleted = false
+                          AND permission_folder.owner_user_id = file_row.owner_user_id
+                          AND (
+                              permission_folder.path = '/'
+                              OR folder.path = permission_folder.path
+                              OR folder.path LIKE permission_folder.path || '/%'
+                          )
+                          AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                    ) THEN 2
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM file_permissions file_perm
+                        WHERE file_perm.file_id = file_row.id
+                          AND file_perm.user_id = $1
+                          AND lower(file_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                    ) THEN 1
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM folder_permissions folder_perm
+                        INNER JOIN folders permission_folder
+                            ON permission_folder.id = folder_perm.folder_id
+                        WHERE folder_perm.user_id = $1
+                          AND permission_folder.is_deleted = false
+                          AND permission_folder.owner_user_id = file_row.owner_user_id
+                          AND (
+                              permission_folder.path = '/'
+                              OR folder.path = permission_folder.path
+                              OR folder.path LIKE permission_folder.path || '/%'
+                          )
+                          AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                    ) THEN 1
+                    ELSE 0
+                END AS access_rank
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
+            WHERE file_row.owner_user_id <> $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND (
+                  file_row.name ILIKE $2
+                  OR (
+                      CASE
+                          WHEN folder.path = '/' THEN '/' || file_row.name
+                          ELSE folder.path || '/' || file_row.name
+                      END
+                  ) ILIKE $2
+                  OR owner_user.username ILIKE $2
+                  OR COALESCE(creator_user.username, 'Deleted user') ILIKE $2
+              )
+        ),
+        ranked_entries AS (
+            SELECT
+                resource_type,
+                resource_id,
+                name,
+                path,
+                owner_user_id,
+                owner_username,
+                created_by_user_id,
+                created_by_username,
+                source_context,
+                navigate_folder_id,
+                size_bytes,
+                modified_at_unix_ms,
+                MAX(access_rank) AS access_rank
+            FROM candidate_entries
+            GROUP BY
+                resource_type,
+                resource_id,
+                name,
+                path,
+                owner_user_id,
+                owner_username,
+                created_by_user_id,
+                created_by_username,
+                source_context,
+                navigate_folder_id,
+                size_bytes,
+                modified_at_unix_ms
+        )
+        SELECT
+            resource_type,
+            resource_id,
+            name,
+            path,
+            owner_user_id,
+            owner_username,
+            created_by_user_id,
+            created_by_username,
+            source_context,
+            navigate_folder_id,
+            size_bytes,
+            modified_at_unix_ms,
+            access_rank
+        FROM ranked_entries
+        WHERE access_rank > 0
+        ORDER BY
+            CASE WHEN source_context = 'storage' THEN 0 ELSE 1 END,
+            CASE WHEN resource_type = 'folder' THEN 0 ELSE 1 END,
+            LOWER(name),
+            name,
+            resource_id
+        LIMIT $3
+        OFFSET $4
+        "#,
+    )
+    .bind(user_id)
+    .bind(search_pattern)
+    .bind(page_limit + 1)
+    .bind(page_offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load search results"))?;
+
+    let has_more = rows.len() as i64 > page_limit;
+    if has_more {
+        rows.truncate(page_limit as usize);
+    }
+
+    let next_cursor = if has_more {
+        Some((page_offset + page_limit).to_string())
+    } else {
+        None
+    };
+
+    Ok((rows, next_cursor, has_more))
 }
 
 async fn load_trashed_storage_entries(
@@ -3204,6 +3936,8 @@ async fn load_trashed_storage_entries(
             entries.entry_type,
             entries.owner_user_id,
             entries.owner_username,
+            entries.created_by_user_id,
+            entries.created_by_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
@@ -3215,12 +3949,16 @@ async fn load_trashed_storage_entries(
                 'folder'::TEXT AS entry_type,
                 folder.owner_user_id,
                 owner_user.username AS owner_username,
+                folder.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 folder.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(folder.deleted_at, folder.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders folder
             INNER JOIN users owner_user
                 ON owner_user.id = folder.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = folder.created_by_user_id
             LEFT JOIN folders parent
                 ON parent.id = folder.parent_folder_id
             WHERE folder.owner_user_id = $1
@@ -3243,12 +3981,16 @@ async fn load_trashed_storage_entries(
                 'file'::TEXT AS entry_type,
                 file_row.owner_user_id,
                 owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(file_row.deleted_at, file_row.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
             INNER JOIN users owner_user
                 ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
             INNER JOIN folders folder
                 ON folder.id = file_row.folder_id
             WHERE file_row.owner_user_id = $1
@@ -3281,6 +4023,8 @@ async fn load_starred_storage_entries(
             entries.entry_type,
             entries.owner_user_id,
             entries.owner_username,
+            entries.created_by_user_id,
+            entries.created_by_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
@@ -3292,12 +4036,16 @@ async fn load_starred_storage_entries(
                 'folder'::TEXT AS entry_type,
                 folder.owner_user_id,
                 owner_user.username AS owner_username,
+                folder.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 folder.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders folder
             INNER JOIN users owner_user
                 ON owner_user.id = folder.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = folder.created_by_user_id
             WHERE folder.owner_user_id = $1
               AND folder.is_deleted = false
               AND folder.is_starred = true
@@ -3315,12 +4063,16 @@ async fn load_starred_storage_entries(
                 'file'::TEXT AS entry_type,
                 file_row.owner_user_id,
                 owner_user.username AS owner_username,
+                file_row.created_by_user_id,
+                COALESCE(creator_user.username, 'Deleted user') AS created_by_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
             INNER JOIN users owner_user
                 ON owner_user.id = file_row.owner_user_id
+            LEFT JOIN users creator_user
+                ON creator_user.id = file_row.created_by_user_id
             INNER JOIN folders folder
                 ON folder.id = file_row.folder_id
             WHERE file_row.owner_user_id = $1
@@ -3340,6 +4092,227 @@ async fn load_starred_storage_entries(
     .map_err(|_| ApiError::internal_with_context("Failed to load starred listing"))
 }
 
+async fn load_accessible_file_by_id_for_batch_download(
+    pool: &PgPool,
+    user_id: i64,
+    file_id: i64,
+) -> Result<BatchFileDownloadRow, ApiError> {
+    sqlx::query_as::<_, BatchFileDownloadRow>(
+        r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_folder_id, owner_user_id
+            FROM folders
+            WHERE id = (
+                SELECT folder_id
+                FROM files
+                WHERE id = $1
+                LIMIT 1
+            )
+              AND is_deleted = false
+
+            UNION ALL
+
+            SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+            FROM folders parent
+            INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+            WHERE parent.is_deleted = false
+        )
+        SELECT
+            file_row.storage_path,
+            CASE
+                WHEN folder.path = '/' THEN '/' || file_row.name
+                ELSE folder.path || '/' || file_row.name
+            END AS logical_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+          AND (
+                file_row.owner_user_id = $2
+                OR EXISTS (
+                    SELECT 1
+                    FROM ancestors branch
+                    WHERE branch.owner_user_id = $2
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM file_permissions file_perm
+                    WHERE file_perm.file_id = file_row.id
+                      AND file_perm.user_id = $2
+                      AND lower(file_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                )
+          )
+        LIMIT 1
+        "#,
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve batch file download target"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))
+}
+
+async fn load_folder_files_for_batch_download(
+    pool: &PgPool,
+    owner_user_id: i64,
+    folder_path: &str,
+) -> Result<Vec<BatchFileDownloadRow>, ApiError> {
+    let folder_prefix = format!("{}/%", folder_path.trim_end_matches('/'));
+
+    sqlx::query_as::<_, BatchFileDownloadRow>(
+        r#"
+        SELECT
+            file_row.storage_path,
+            CASE
+                WHEN folder.path = '/' THEN '/' || file_row.name
+                ELSE folder.path || '/' || file_row.name
+            END AS logical_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+          AND (
+              folder.path = $2
+              OR folder.path LIKE $3
+          )
+        ORDER BY
+            LENGTH(folder.path),
+            LOWER(folder.path),
+            LOWER(file_row.name),
+            file_row.id
+        "#,
+    )
+    .bind(owner_user_id)
+    .bind(folder_path)
+    .bind(folder_prefix)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load folder files for batch download"))
+}
+
+fn folder_download_label(folder_path: &str) -> String {
+    let normalized = normalize_db_path(folder_path);
+    if normalized == "/" {
+        return "My Storage".to_owned();
+    }
+
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .next_back()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "folder".to_owned())
+}
+
+fn file_download_label(file_path: &str) -> String {
+    let normalized = normalize_db_path(file_path);
+
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .next_back()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "file".to_owned())
+}
+
+fn strip_folder_prefix(child_path: &str, folder_path: &str) -> String {
+    let normalized_child = normalize_db_path(child_path);
+    let normalized_folder = normalize_db_path(folder_path);
+
+    if normalized_folder == "/" {
+        return normalized_child.trim_start_matches('/').to_owned();
+    }
+
+    if normalized_child == normalized_folder {
+        return String::new();
+    }
+
+    let prefix = format!("{}/", normalized_folder.trim_end_matches('/'));
+    if let Some(stripped) = normalized_child.strip_prefix(&prefix) {
+        return stripped.to_owned();
+    }
+
+    normalized_child.trim_start_matches('/').to_owned()
+}
+
+fn normalize_zip_entry_path(raw_path: &str) -> String {
+    let mut segments: Vec<String> = Vec::new();
+
+    for segment in raw_path.split(['/', '\\']) {
+        let trimmed = segment.trim();
+
+        if trimmed.is_empty() || trimmed == "." {
+            continue;
+        }
+
+        if trimmed == ".." {
+            continue;
+        }
+
+        let clean: String = trimmed.chars().filter(|ch| !ch.is_control()).collect();
+        if clean.is_empty() {
+            continue;
+        }
+
+        segments.push(clean);
+    }
+
+    segments.join("/")
+}
+
+fn make_unique_zip_entry_path(path: &str, used_paths: &mut HashSet<String>) -> String {
+    if used_paths.insert(path.to_owned()) {
+        return path.to_owned();
+    }
+
+    let (parent, name) = if let Some((path_parent, file_name)) = path.rsplit_once('/') {
+        (path_parent, file_name)
+    } else {
+        ("", path)
+    };
+
+    let extension_split = name.rfind('.').filter(|index| *index > 0 && *index < name.len() - 1);
+    let (stem, extension) = if let Some(index) = extension_split {
+        (&name[..index], Some(&name[index + 1..]))
+    } else {
+        (name, None)
+    };
+
+    let base_stem = if stem.trim().is_empty() { "file" } else { stem };
+    let mut suffix_index = 2;
+
+    loop {
+        let candidate_name = match extension {
+            Some(ext) => format!("{base_stem} ({suffix_index}).{ext}"),
+            None => format!("{base_stem} ({suffix_index})"),
+        };
+        let candidate_path = if parent.is_empty() {
+            candidate_name
+        } else {
+            format!("{parent}/{candidate_name}")
+        };
+
+        if used_paths.insert(candidate_path.clone()) {
+            return candidate_path;
+        }
+
+        suffix_index += 1;
+    }
+}
+
 fn storage_entry_row_to_dto(row: StorageEntryRow) -> StorageEntryDto {
     StorageEntryDto {
         id: row.id,
@@ -3348,6 +4321,8 @@ fn storage_entry_row_to_dto(row: StorageEntryRow) -> StorageEntryDto {
         entry_type: row.entry_type,
         owner_user_id: row.owner_user_id,
         owner_username: row.owner_username,
+        created_by_user_id: row.created_by_user_id,
+        created_by_username: row.created_by_username,
         is_starred: row.is_starred,
         size_bytes: row.size_bytes,
         modified_at_unix_ms: Some(row.modified_at_unix_ms),
@@ -3369,6 +4344,34 @@ fn is_descendant_path(path: &str, ancestor: &str) -> bool {
             .get(normalized_ancestor.len())
             .copied()
             == Some(b'/')
+}
+
+fn normalize_storage_list_limit(raw: Option<i64>) -> i64 {
+    let requested = raw.unwrap_or(DEFAULT_STORAGE_LIST_LIMIT);
+    requested.clamp(1, MAX_STORAGE_LIST_LIMIT)
+}
+
+fn normalize_search_list_limit(raw: Option<i64>) -> i64 {
+    let requested = raw.unwrap_or(DEFAULT_SEARCH_LIST_LIMIT);
+    requested.clamp(1, MAX_SEARCH_LIST_LIMIT)
+}
+
+fn parse_storage_list_cursor(raw: Option<&str>) -> Result<i64, ApiError> {
+    let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(0);
+    };
+
+    let parsed = value
+        .parse::<i64>()
+        .map_err(|_| ApiError::BadRequest("Invalid storage list cursor".to_owned()))?;
+
+    if parsed < 0 {
+        return Err(ApiError::BadRequest(
+            "Invalid storage list cursor".to_owned(),
+        ));
+    }
+
+    Ok(parsed)
 }
 
 fn access_level_from_rank(rank: i32) -> Option<AccessLevel> {
@@ -3404,6 +4407,30 @@ async fn lookup_username_by_id_tx(
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to load username"))?
     .ok_or_else(|| ApiError::BadRequest("User account does not exist".to_owned()))
+}
+
+async fn lookup_optional_username_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Option<i64>,
+) -> Result<String, ApiError> {
+    let Some(user_id) = user_id else {
+        return Ok("Deleted user".to_owned());
+    };
+
+    let username = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT username
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load username"))?;
+
+    Ok(username.unwrap_or_else(|| "Deleted user".to_owned()))
 }
 
 async fn load_resource_owner(
