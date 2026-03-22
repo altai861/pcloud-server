@@ -70,7 +70,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     private readonly searchService: WorkspaceSearchService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
-  ) {}
+  ) { }
 
   ngOnInit(): void {
     this.profileImageSub = this.profileImageService.profileImageSrc$.subscribe((src) => {
@@ -139,6 +139,41 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }
 
     this.loadStorage(entry.path);
+  }
+
+  onStarClick(event: MouseEvent, entry: StorageEntryDto): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    const nextValue = !entry.isStarred;
+    const previousValue = entry.isStarred;
+    entry.isStarred = nextValue;
+    this.triggerUiRefresh();
+
+    this.storageApiService
+      .setStarred('', accessToken, entry.path, entry.entryType, nextValue)
+      .subscribe({
+        next: (response) => {
+          entry.isStarred = response.entry.isStarred;
+          this.triggerUiRefresh();
+        },
+        error: (error: unknown) => {
+          entry.isStarred = previousValue;
+          this.storageErrorMessage = this.extractError(error, `Failed to update ${entry.entryType} star status`);
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.triggerUiRefresh();
+        }
+      });
   }
 
   setViewMode(mode: ViewMode): void {
@@ -499,7 +534,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.uploadFile(action.file);
+    if (action.type === 'upload-file') {
+      this.uploadFile(action.file);
+      return;
+    }
+
+    this.loadStorage(action.path);
   }
 
   private openCreateFolderPrompt(): void {

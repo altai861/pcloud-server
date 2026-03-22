@@ -61,6 +61,7 @@ export class RecentEntriesService {
             typeof (item as RecentStorageEntryModel).path === 'string' &&
             ((item as RecentStorageEntryModel).entryType === 'folder' ||
               (item as RecentStorageEntryModel).entryType === 'file') &&
+            typeof (item as RecentStorageEntryModel).isStarred === 'boolean' &&
             (typeof (item as RecentStorageEntryModel).openedAtUnixMs === 'number' ||
               typeof (item as RecentStorageEntryModel).openedAtUnixMs === 'string')
           );

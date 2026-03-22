@@ -6,6 +6,7 @@ pub struct StorageEntryDto {
     pub name: String,
     pub path: String,
     pub entry_type: String,
+    pub is_starred: bool,
     pub size_bytes: Option<i64>,
     pub modified_at_unix_ms: Option<i64>,
 }

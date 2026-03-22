@@ -39,6 +39,19 @@ pub struct RenameStorageInput {
     pub new_name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageEntryKind {
+    Folder,
+    File,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetStarredInput {
+    pub path: Option<String>,
+    pub entry_type: StorageEntryKind,
+    pub starred: bool,
+}
+
 #[derive(Debug, FromRow)]
 struct SystemStorageRow {
     storage_root_path: String,
@@ -56,6 +69,7 @@ struct StorageEntryRow {
     name: String,
     path: String,
     entry_type: String,
+    is_starred: bool,
     size_bytes: Option<i64>,
     modified_at_unix_ms: i64,
 }
@@ -107,6 +121,7 @@ struct TrashedFolderRestoreRow {
 struct RenameFileRow {
     id: i64,
     name: String,
+    is_starred: bool,
     storage_path: String,
     folder_id: i64,
     folder_path: String,
@@ -116,6 +131,7 @@ struct RenameFileRow {
 struct RenameFolderRow {
     id: i64,
     name: String,
+    is_starred: bool,
     path: String,
     parent_folder_id: Option<i64>,
 }
@@ -194,6 +210,7 @@ pub async fn list_user_storage(
             name: entry.name,
             path: normalize_db_path(&entry.path),
             entry_type: entry.entry_type,
+            is_starred: entry.is_starred,
             size_bytes: entry.size_bytes,
             modified_at_unix_ms: Some(entry.modified_at_unix_ms),
         })
@@ -234,6 +251,37 @@ pub async fn list_user_trash(
 
     Ok(StorageListResult {
         current_path: "/trash".to_owned(),
+        parent_path: None,
+        entries,
+        total_storage_limit_bytes: settings.total_storage_limit_bytes,
+        total_storage_used_bytes,
+        user_storage_quota_bytes: current_user.user.storage_quota_bytes,
+        user_storage_used_bytes: current_user.user.storage_used_bytes,
+    })
+}
+
+pub async fn list_user_starred(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    query: StorageListQuery,
+) -> Result<StorageListResult, ApiError> {
+    let settings = load_system_storage_settings(pool).await?;
+    let total_storage_used_bytes = load_total_storage_usage(pool).await?;
+
+    let search = query
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let entries = load_starred_storage_entries(pool, current_user.user.id, search)
+        .await?
+        .into_iter()
+        .map(storage_entry_row_to_dto)
+        .collect();
+
+    Ok(StorageListResult {
+        current_path: "/starred".to_owned(),
         parent_path: None,
         entries,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
@@ -405,6 +453,7 @@ pub async fn create_folder(
             name,
             path,
             'folder'::TEXT AS entry_type,
+            is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
@@ -582,6 +631,7 @@ pub async fn upload_file(
                 ELSE $10::TEXT || '/' || name
             END AS path,
             'file'::TEXT AS entry_type,
+            is_starred,
             size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
@@ -661,6 +711,7 @@ pub async fn rename_file(
             name: target_file.name,
             path: normalize_db_path(&requested_path),
             entry_type: "file".to_owned(),
+            is_starred: target_file.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
         });
@@ -714,10 +765,11 @@ pub async fn rename_file(
             CASE
                 WHEN $5::TEXT = '/' THEN '/' || name
                 ELSE $5::TEXT || '/' || name
-            END AS path,
-            'file'::TEXT AS entry_type,
-            size_bytes,
-            (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+                END AS path,
+                'file'::TEXT AS entry_type,
+                is_starred,
+                size_bytes,
+                (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
     .bind(target_file.id)
@@ -772,6 +824,7 @@ pub async fn rename_folder(
             name: target_folder.name,
             path: normalize_db_path(&target_folder.path),
             entry_type: "folder".to_owned(),
+            is_starred: target_folder.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
         });
@@ -886,6 +939,7 @@ pub async fn rename_folder(
             name,
             path,
             'folder'::TEXT AS entry_type,
+            is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         FROM folders
@@ -920,6 +974,97 @@ pub async fn rename_folder(
     }
 
     Ok(storage_entry_row_to_dto(renamed_folder))
+}
+
+pub async fn set_starred(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: SetStarredInput,
+) -> Result<StorageEntryDto, ApiError> {
+    let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
+
+    match input.entry_type {
+        StorageEntryKind::Folder => {
+            if requested_path == "/" {
+                return Err(ApiError::BadRequest(
+                    "Root folder cannot be starred".to_owned(),
+                ));
+            }
+
+            let updated = sqlx::query_as::<_, StorageEntryRow>(
+                r#"
+                UPDATE folders
+                SET is_starred = $3,
+                    updated_at = NOW()
+                WHERE owner_user_id = $1
+                  AND path = $2
+                  AND is_deleted = false
+                RETURNING
+                    name,
+                    path,
+                    'folder'::TEXT AS entry_type,
+                    is_starred,
+                    NULL::BIGINT AS size_bytes,
+                    (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+                "#,
+            )
+            .bind(current_user.user.id)
+            .bind(&requested_path)
+            .bind(input.starred)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| ApiError::internal_with_context("Failed to update folder star status"))?
+            .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned()))?;
+
+            Ok(storage_entry_row_to_dto(updated))
+        }
+        StorageEntryKind::File => {
+            if requested_path == "/" {
+                return Err(ApiError::BadRequest(
+                    "Requested path must point to a file".to_owned(),
+                ));
+            }
+
+            let updated = sqlx::query_as::<_, StorageEntryRow>(
+                r#"
+                UPDATE files
+                SET is_starred = $3,
+                    updated_at = NOW()
+                FROM folders folder
+                WHERE files.owner_user_id = $1
+                  AND folder.owner_user_id = $1
+                  AND files.folder_id = folder.id
+                  AND files.is_deleted = false
+                  AND folder.is_deleted = false
+                  AND (
+                      CASE
+                          WHEN folder.path = '/' THEN '/' || files.name
+                          ELSE folder.path || '/' || files.name
+                      END
+                  ) = $2
+                RETURNING
+                    files.name,
+                    CASE
+                        WHEN folder.path = '/' THEN '/' || files.name
+                        ELSE folder.path || '/' || files.name
+                    END AS path,
+                    'file'::TEXT AS entry_type,
+                    files.is_starred,
+                    files.size_bytes,
+                    (EXTRACT(EPOCH FROM files.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+                "#,
+            )
+            .bind(current_user.user.id)
+            .bind(&requested_path)
+            .bind(input.starred)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| ApiError::internal_with_context("Failed to update file star status"))?
+            .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?;
+
+            Ok(storage_entry_row_to_dto(updated))
+        }
+    }
 }
 
 pub async fn delete_file(
@@ -1595,6 +1740,7 @@ async fn load_file_for_rename_tx(
         SELECT
             file_row.id,
             file_row.name,
+            file_row.is_starred,
             file_row.storage_path,
             file_row.folder_id,
             folder.path AS folder_path
@@ -1632,6 +1778,7 @@ async fn load_folder_for_rename_tx(
         SELECT
             id,
             name,
+            is_starred,
             path,
             parent_folder_id
         FROM folders
@@ -1809,6 +1956,7 @@ async fn load_storage_entries(
             entries.name,
             entries.path,
             entries.entry_type,
+            entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
         FROM (
@@ -1816,6 +1964,7 @@ async fn load_storage_entries(
                 f.name,
                 f.path,
                 'folder'::TEXT AS entry_type,
+                f.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM f.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders f
@@ -1833,6 +1982,7 @@ async fn load_storage_entries(
                     ELSE $4::TEXT || '/' || file_row.name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
@@ -1867,6 +2017,7 @@ async fn load_trashed_storage_entries(
             entries.name,
             entries.path,
             entries.entry_type,
+            entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
         FROM (
@@ -1874,6 +2025,7 @@ async fn load_trashed_storage_entries(
                 folder.name,
                 folder.path,
                 'folder'::TEXT AS entry_type,
+                folder.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(folder.deleted_at, folder.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders folder
@@ -1896,6 +2048,7 @@ async fn load_trashed_storage_entries(
                     ELSE folder.path || '/' || file_row.name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(file_row.deleted_at, file_row.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
@@ -1917,11 +2070,72 @@ async fn load_trashed_storage_entries(
     .map_err(|_| ApiError::internal_with_context("Failed to load trash listing"))
 }
 
+async fn load_starred_storage_entries(
+    pool: &PgPool,
+    user_id: i64,
+    search: Option<&str>,
+) -> Result<Vec<StorageEntryRow>, ApiError> {
+    sqlx::query_as::<_, StorageEntryRow>(
+        r#"
+        SELECT
+            entries.name,
+            entries.path,
+            entries.entry_type,
+            entries.is_starred,
+            entries.size_bytes,
+            entries.modified_at_unix_ms
+        FROM (
+            SELECT
+                folder.name,
+                folder.path,
+                'folder'::TEXT AS entry_type,
+                folder.is_starred,
+                NULL::BIGINT AS size_bytes,
+                (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+            FROM folders folder
+            WHERE folder.owner_user_id = $1
+              AND folder.is_deleted = false
+              AND folder.is_starred = true
+              AND ($2::TEXT IS NULL OR folder.name ILIKE '%' || $2 || '%')
+
+            UNION ALL
+
+            SELECT
+                file_row.name,
+                CASE
+                    WHEN folder.path = '/' THEN '/' || file_row.name
+                    ELSE folder.path || '/' || file_row.name
+                END AS path,
+                'file'::TEXT AS entry_type,
+                file_row.is_starred,
+                file_row.size_bytes,
+                (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            WHERE file_row.owner_user_id = $1
+              AND folder.owner_user_id = $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND file_row.is_starred = true
+              AND ($2::TEXT IS NULL OR file_row.name ILIKE '%' || $2 || '%')
+        ) entries
+        ORDER BY entries.modified_at_unix_ms DESC, LOWER(entries.name), entries.name
+        "#,
+    )
+    .bind(user_id)
+    .bind(search)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load starred listing"))
+}
+
 fn storage_entry_row_to_dto(row: StorageEntryRow) -> StorageEntryDto {
     StorageEntryDto {
         name: row.name,
         path: normalize_db_path(&row.path),
         entry_type: row.entry_type,
+        is_starred: row.is_starred,
         size_bytes: row.size_bytes,
         modified_at_unix_ms: Some(row.modified_at_unix_ms),
     }

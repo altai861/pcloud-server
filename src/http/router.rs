@@ -33,6 +33,14 @@ pub fn build_client_router(state: AppState) -> Router {
             get(storage_handlers::list_trash),
         )
         .route(
+            "/api/client/storage/starred/list",
+            get(storage_handlers::list_starred),
+        )
+        .route(
+            "/api/client/storage/starred",
+            put(storage_handlers::set_starred),
+        )
+        .route(
             "/api/client/storage/folders/metadata",
             get(storage_handlers::folder_metadata),
         )

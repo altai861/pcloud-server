@@ -9,8 +9,8 @@ use crate::{
                 StorageMutationResponse, StorageRestoreResponse,
             },
             service::{
-                self as storage_service, CreateFolderInput, RenameStorageInput,
-                StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
+                self as storage_service, CreateFolderInput, RenameStorageInput, SetStarredInput,
+                StorageEntryKind, StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
             },
         },
     },
@@ -78,6 +78,14 @@ pub struct RenameStorageRequest {
     pub new_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetStarredRequest {
+    pub path: Option<String>,
+    pub entry_type: String,
+    pub starred: bool,
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -114,6 +122,34 @@ pub async fn list_trash(
     let current_user = service::authenticate_headers(&state.pool, &headers).await?;
 
     let result = storage_service::list_user_trash(
+        &state.pool,
+        &current_user,
+        StorageListQuery {
+            path: None,
+            search: query.q,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageListResponse {
+        current_path: result.current_path,
+        parent_path: result.parent_path,
+        entries: result.entries,
+        total_storage_limit_bytes: result.total_storage_limit_bytes,
+        total_storage_used_bytes: result.total_storage_used_bytes,
+        user_storage_quota_bytes: result.user_storage_quota_bytes,
+        user_storage_used_bytes: result.user_storage_used_bytes,
+    }))
+}
+
+pub async fn list_starred(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListStorageRequest>,
+) -> ApiResult<Json<StorageListResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::list_user_starred(
         &state.pool,
         &current_user,
         StorageListQuery {
@@ -212,6 +248,32 @@ pub async fn rename_file(
 
     Ok(Json(StorageMutationResponse {
         message: "File renamed successfully".to_owned(),
+        entry,
+    }))
+}
+
+pub async fn set_starred(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SetStarredRequest>,
+) -> ApiResult<Json<StorageMutationResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let entry_type = parse_entry_type(&payload.entry_type)?;
+
+    let entry = storage_service::set_starred(
+        &state.pool,
+        &current_user,
+        SetStarredInput {
+            path: payload.path,
+            entry_type,
+            starred: payload.starred,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageMutationResponse {
+        message: "Star status updated successfully".to_owned(),
         entry,
     }))
 }
@@ -524,5 +586,17 @@ fn map_folder_metadata_response(
         folder_count: payload.folder_count,
         file_count: payload.file_count,
         total_item_count: payload.total_item_count,
+    }
+}
+
+fn parse_entry_type(raw: &str) -> Result<StorageEntryKind, crate::error::ApiError> {
+    let normalized = raw.trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "folder" => Ok(StorageEntryKind::Folder),
+        "file" => Ok(StorageEntryKind::File),
+        _ => Err(crate::error::ApiError::BadRequest(
+            "entryType must be either 'folder' or 'file'".to_owned(),
+        )),
     }
 }

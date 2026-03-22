@@ -230,7 +230,7 @@ button {
 .list-header,
 .list-row {
   display: grid;
-  grid-template-columns: minmax(250px, 2fr) minmax(105px, 0.8fr) minmax(140px, 1fr) minmax(105px, 0.7fr) 44px;
+  grid-template-columns: minmax(250px, 2fr) minmax(105px, 0.8fr) minmax(140px, 1fr) minmax(105px, 0.7fr) 38px 44px;
   gap: 0.35rem;
   align-items: center;
   min-height: 44px;
@@ -253,6 +253,11 @@ button {
   display: flex;
   align-items: center;
   gap: 0.22rem;
+  justify-content: flex-end;
+}
+
+.star-cell-header {
+  text-align: center;
 }
 
 .sort-cell img {
@@ -322,6 +327,40 @@ button {
   place-items: center;
   cursor: pointer;
   transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.star-cell {
+  border: none;
+  background: transparent;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.list-row:hover .star-cell,
+.star-cell.active {
+  opacity: 1;
+}
+
+.star-cell:hover {
+  background: color-mix(in srgb, var(--focus) 10%, var(--panel));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 28%, var(--line));
+}
+
+.star-cell:active {
+  transform: scale(0.96);
+}
+
+.star-cell img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 
 .more-cell:hover {
@@ -619,6 +658,10 @@ button {
   filter: invert(1) brightness(1.2);
 }
 
+:host-context([data-theme='dark']) .star-cell img {
+  filter: brightness(0) invert(1);
+}
+
 :host-context([data-theme='dark']) .owner-avatar.default-avatar {
   filter: invert(1) brightness(1.2);
 }
@@ -626,7 +669,7 @@ button {
 @media (max-width: 1050px) {
   .list-header,
   .list-row {
-    grid-template-columns: minmax(220px, 2fr) minmax(92px, 0.7fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) 38px;
+    grid-template-columns: minmax(220px, 2fr) minmax(92px, 0.7fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) 34px 38px;
     font-size: 0.88rem;
   }
 }
@@ -655,11 +698,15 @@ button {
 
   .list-header,
   .list-row {
-    grid-template-columns: minmax(180px, 1.9fr) minmax(100px, 1fr) minmax(86px, 0.7fr) 34px;
+    grid-template-columns: minmax(180px, 1.9fr) minmax(100px, 1fr) minmax(86px, 0.7fr) 30px 34px;
   }
 
   .list-header span:nth-child(2),
   .list-row span.owner-cell {
     display: none;
+  }
+
+  .star-cell {
+    opacity: 1;
   }
 }

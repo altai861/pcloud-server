@@ -59,6 +59,26 @@ export class StorageApiService {
     );
   }
 
+  listStarred(
+    apiBaseUrl: string,
+    accessToken: string,
+    search: string
+  ): Observable<StorageListResponseDto> {
+    let params = new HttpParams();
+
+    if (search.trim().length > 0) {
+      params = params.set('q', search.trim());
+    }
+
+    return this.http.get<StorageListResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/starred/list'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
   createFolder(
     apiBaseUrl: string,
     accessToken: string,
@@ -106,6 +126,26 @@ export class StorageApiService {
       {
         path,
         newName
+      },
+      {
+        headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
+  setStarred(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string,
+    entryType: 'folder' | 'file',
+    starred: boolean
+  ): Observable<StorageMutationResponseDto> {
+    return this.http.put<StorageMutationResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/starred'),
+      {
+        path,
+        entryType,
+        starred
       },
       {
         headers: this.authHeaders(accessToken)

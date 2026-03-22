@@ -63,6 +63,7 @@
       <span>Owner</span>
       <span>Modified date</span>
       <span>File size</span>
+      <span class="star-cell-header" aria-hidden="true"></span>
       <span class="sort-cell">
         <img src="sort.png" alt="" />
         <span>Sort</span>
@@ -93,6 +94,16 @@
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
+      <button
+        type="button"
+        class="star-cell"
+        [class.active]="entry.isStarred"
+        [attr.aria-label]="entry.isStarred ? 'Remove star' : 'Add star'"
+        [title]="entry.isStarred ? 'Remove star' : 'Add star'"
+        (click)="onStarClick($event, entry)"
+      >
+        <img [src]="entry.isStarred ? 'star-filled.png' : 'starred.png'" alt="" />
+      </button>
       <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
         <img src="three-vertical-dots.png" alt="More" />
       </button>

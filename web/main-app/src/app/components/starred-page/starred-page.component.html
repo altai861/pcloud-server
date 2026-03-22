@@ -1,4 +1,67 @@
-<section class="page-wrap">
-  <h2>Starred</h2>
-  <p>Your starred files and folders will appear here.</p>
+<section class="starred-content">
+  <header class="starred-header">
+    <h2>Starred</h2>
+    <p>Files and folders you marked with a star.</p>
+  </header>
+
+  <section class="list-wrap">
+    <header class="list-header">
+      <span>Name</span>
+      <span>Type</span>
+      <span>Modified</span>
+      <span>Size</span>
+      <span>Action</span>
+    </header>
+
+    <p class="status-text" *ngIf="loading">Loading starred items...</p>
+    <p class="status-text error" *ngIf="errorMessage">{{ errorMessage }}</p>
+    <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
+      No starred items yet.
+    </p>
+
+    <article
+      class="list-row"
+      *ngFor="let entry of entries"
+      (contextmenu)="openEntryContextMenu($event, entry)"
+    >
+      <span class="name-cell">
+        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <button
+          type="button"
+          class="star-toggle"
+          aria-label="Remove star"
+          title="Remove star"
+          (click)="onUnstarClick($event, entry)"
+        >
+          <img class="star-icon" src="star-filled.png" alt="" />
+        </button>
+        <span class="name-meta">
+          <span class="name-text">{{ entry.name }}</span>
+          <span class="resource-path">{{ entry.path }}</span>
+        </span>
+      </span>
+      <span class="type-cell">{{ entry.entryType }}</span>
+      <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
+      <span>{{ formatSize(entry.sizeBytes) }}</span>
+      <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
+        <img src="three-vertical-dots.png" alt="More" />
+      </button>
+    </article>
+  </section>
+</section>
+
+<section
+  class="entry-context-menu"
+  *ngIf="isEntryMenuOpen"
+  [style.left.px]="entryMenuX"
+  [style.top.px]="entryMenuY"
+  (click)="$event.stopPropagation()"
+  (contextmenu)="$event.preventDefault()"
+>
+  <button type="button" (click)="openEntryInStorage($event)">
+    Open in Storage
+  </button>
+  <button type="button" (click)="onUnstarFromMenu($event)">
+    Remove star
+  </button>
 </section>
