@@ -103,6 +103,10 @@ pub fn build_client_router(state: AppState) -> Router {
             get(storage_handlers::download_file),
         )
         .route(
+            "/api/client/storage/files/preview",
+            get(storage_handlers::preview_file),
+        )
+        .route(
             "/api/client/storage/downloads/batch",
             post(storage_handlers::download_batch),
         )

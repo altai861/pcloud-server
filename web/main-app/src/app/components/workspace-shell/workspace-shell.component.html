@@ -89,6 +89,17 @@
           <p>
             {{ 'sidebar.storageUsage' | t: { used: formatSize(currentUser?.storageUsedBytes ?? null), quota: formatSize(currentUser?.storageQuotaBytes ?? null) } }}
           </p>
+          <div
+            class="usage-progress"
+            role="progressbar"
+            aria-label="Storage usage"
+            [attr.aria-valuenow]="storageUsagePercent | number: '1.0-0'"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span class="usage-progress-fill" [style.width.%]="storageUsagePercent"></span>
+          </div>
+          <p class="usage-percent">{{ storageUsagePercent | number: '1.0-0' }}%</p>
         </section>
       </div>
     </aside>

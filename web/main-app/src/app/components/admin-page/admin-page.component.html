@@ -1,88 +1,88 @@
 <section class="admin-page">
   <header class="admin-header">
     <div>
-      <h2>Users</h2>
-      <p>Manage accounts available in your personal cloud system.</p>
+      <h2>{{ 'admin.title' | t }}</h2>
+      <p>{{ 'admin.subtitle' | t }}</p>
     </div>
-    <button type="button" (click)="openCreateUserForm()">Create user</button>
+    <button type="button" (click)="openCreateUserForm()">{{ 'admin.createUser' | t }}</button>
   </header>
 
   <section class="user-modal-backdrop" *ngIf="showCreateUserForm" (click)="!creating && closeCreateUserForm()">
     <section class="user-form-card user-modal" (click)="$event.stopPropagation()">
-      <h3>Create user</h3>
+      <h3>{{ 'admin.createUser' | t }}</h3>
 
       <div class="user-form-grid">
         <label>
-          <span>Username</span>
+          <span>{{ 'admin.field.username' | t }}</span>
           <input
             type="text"
             [(ngModel)]="createForm.username"
             [disabled]="creating"
-            placeholder="john.doe"
+            [placeholder]="'admin.placeholder.username' | t"
           />
         </label>
 
         <label>
-          <span>Email</span>
+          <span>{{ 'admin.field.email' | t }}</span>
           <input
             type="email"
             [(ngModel)]="createForm.email"
             [disabled]="creating"
-            placeholder="john@example.com"
+            [placeholder]="'admin.placeholder.email' | t"
           />
         </label>
 
         <label>
-          <span>Full name</span>
+          <span>{{ 'admin.field.fullName' | t }}</span>
           <input
             type="text"
             [(ngModel)]="createForm.fullName"
             [disabled]="creating"
-            placeholder="John Doe"
+            [placeholder]="'admin.placeholder.fullName' | t"
           />
         </label>
 
         <label>
-          <span>Password</span>
+          <span>{{ 'admin.field.password' | t }}</span>
           <input
             type="password"
             [(ngModel)]="createForm.password"
             [disabled]="creating"
-            placeholder="At least 8 chars with mixed case and digit"
+            [placeholder]="'admin.placeholder.password' | t"
           />
         </label>
 
         <label>
-          <span>Confirm password</span>
+          <span>{{ 'admin.field.confirmPassword' | t }}</span>
           <input
             type="password"
             [(ngModel)]="createForm.passwordConfirmation"
             [disabled]="creating"
-            placeholder="Repeat the password"
+            [placeholder]="'admin.placeholder.confirmPassword' | t"
           />
         </label>
 
         <label class="quota-field">
-          <span>Storage quota (friendly)</span>
+          <span>{{ 'admin.field.storageQuotaFriendly' | t }}</span>
           <input
             type="text"
             [(ngModel)]="createForm.storageQuotaInput"
             (ngModelChange)="onFriendlyQuotaChange()"
             [disabled]="creating"
-            placeholder="500GB / 1.5TB / 800GiB"
+            [placeholder]="'admin.placeholder.quotaFriendly' | t"
           />
-          <small>You can type units like KB, MB, GB, TB, KiB, MiB, GiB.</small>
+          <small>{{ 'admin.quota.friendlyHint' | t }}</small>
         </label>
 
         <label class="quota-field">
-          <span>Storage quota (bytes)</span>
+          <span>{{ 'admin.field.storageQuotaBytes' | t }}</span>
           <input
             type="text"
             inputmode="numeric"
             [(ngModel)]="createForm.storageQuotaBytes"
             (ngModelChange)="onBytesQuotaChange()"
             [disabled]="creating"
-            placeholder="500000000000"
+            [placeholder]="'admin.placeholder.quotaBytes' | t"
           />
           <small>{{ quotaBytesPreviewText }}</small>
         </label>
@@ -96,10 +96,10 @@
 
       <div class="form-actions">
         <button type="button" class="secondary" [disabled]="creating" (click)="closeCreateUserForm()">
-          Cancel
+          {{ 'common.cancel' | t }}
         </button>
         <button type="button" [disabled]="creating" (click)="submitCreateUser()">
-          {{ creating ? 'Creating...' : 'Create user' }}
+          {{ creating ? ('admin.creating' | t) : ('admin.createUser' | t) }}
         </button>
       </div>
     </section>
@@ -107,60 +107,60 @@
 
   <section class="user-modal-backdrop" *ngIf="showUpdateUserForm" (click)="!updating && closeUpdateUserForm()">
     <section class="user-form-card user-modal" (click)="$event.stopPropagation()">
-      <h3>Update user</h3>
+      <h3>{{ 'admin.updateUser' | t }}</h3>
 
       <div class="user-form-grid">
         <label>
-          <span>Username</span>
+          <span>{{ 'admin.field.username' | t }}</span>
           <input
             type="text"
             [(ngModel)]="updateForm.username"
             [disabled]="updating"
-            placeholder="john.doe"
+            [placeholder]="'admin.placeholder.username' | t"
           />
         </label>
 
         <label>
-          <span>Email</span>
+          <span>{{ 'admin.field.email' | t }}</span>
           <input
             type="email"
             [(ngModel)]="updateForm.email"
             [disabled]="updating"
-            placeholder="john@example.com"
+            [placeholder]="'admin.placeholder.email' | t"
           />
         </label>
 
         <label class="quota-field">
-          <span>Full name</span>
+          <span>{{ 'admin.field.fullName' | t }}</span>
           <input
             type="text"
             [(ngModel)]="updateForm.fullName"
             [disabled]="updating"
-            placeholder="John Doe"
+            [placeholder]="'admin.placeholder.fullName' | t"
           />
         </label>
 
         <label class="quota-field">
-          <span>Storage quota (friendly)</span>
+          <span>{{ 'admin.field.storageQuotaFriendly' | t }}</span>
           <input
             type="text"
             [(ngModel)]="updateForm.storageQuotaInput"
             (ngModelChange)="onUpdateFriendlyQuotaChange()"
             [disabled]="updating"
-            placeholder="500GB / 1.5TB / 800GiB"
+            [placeholder]="'admin.placeholder.quotaFriendly' | t"
           />
-          <small>You can type units like KB, MB, GB, TB, KiB, MiB, GiB.</small>
+          <small>{{ 'admin.quota.friendlyHint' | t }}</small>
         </label>
 
         <label class="quota-field">
-          <span>Storage quota (bytes)</span>
+          <span>{{ 'admin.field.storageQuotaBytes' | t }}</span>
           <input
             type="text"
             inputmode="numeric"
             [(ngModel)]="updateForm.storageQuotaBytes"
             (ngModelChange)="onUpdateBytesQuotaChange()"
             [disabled]="updating"
-            placeholder="500000000000"
+            [placeholder]="'admin.placeholder.quotaBytes' | t"
           />
           <small>{{ updateQuotaBytesPreviewText }}</small>
         </label>
@@ -174,28 +174,28 @@
 
       <div class="form-actions">
         <button type="button" class="secondary" [disabled]="updating" (click)="closeUpdateUserForm()">
-          Cancel
+          {{ 'common.cancel' | t }}
         </button>
         <button type="button" [disabled]="updating" (click)="submitUpdateUser()">
-          {{ updating ? 'Saving...' : 'Save changes' }}
+          {{ updating ? ('admin.saving' | t) : ('admin.saveChanges' | t) }}
         </button>
       </div>
     </section>
   </section>
 
-  <p class="status" *ngIf="loading">Loading users...</p>
+  <p class="status" *ngIf="loading">{{ 'admin.loadingUsers' | t }}</p>
   <p class="status error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
   <p class="status error" *ngIf="!loading && !errorMessage && actionErrorMessage">{{ actionErrorMessage }}</p>
   <p class="status success" *ngIf="!loading && actionSuccessMessage">{{ actionSuccessMessage }}</p>
 
   <section class="users-table-wrap" *ngIf="!loading && !errorMessage">
     <header class="users-table-head">
-      <span>User</span>
-      <span>Role</span>
-      <span>Status</span>
-      <span>Used / Quota</span>
-      <span>Created</span>
-      <span>Actions</span>
+      <span>{{ 'admin.table.user' | t }}</span>
+      <span>{{ 'admin.table.role' | t }}</span>
+      <span>{{ 'admin.table.status' | t }}</span>
+      <span>{{ 'admin.table.usedQuota' | t }}</span>
+      <span>{{ 'admin.table.created' | t }}</span>
+      <span>{{ 'admin.table.actions' | t }}</span>
     </header>
 
     <div class="users-table-row" *ngFor="let user of users">
@@ -211,8 +211,8 @@
         <button
           type="button"
           class="row-more-btn"
-          title="More actions"
-          aria-label="More actions"
+          [title]="'admin.moreActions' | t"
+          [attr.aria-label]="'admin.moreActions' | t"
           [class.active]="openUserActionsMenuId === user.id"
           (click)="toggleUserActionsMenu($event, user.id)"
         >
@@ -221,7 +221,7 @@
       </div>
     </div>
 
-    <p class="status" *ngIf="users.length === 0">No users found.</p>
+    <p class="status" *ngIf="users.length === 0">{{ 'admin.noUsers' | t }}</p>
   </section>
 
   <section
@@ -232,21 +232,21 @@
     (click)="$event.stopPropagation()"
   >
     <button type="button" class="row-action-btn" (click)="onUpdateFromMenu($event, menuUser)">
-      Update
+      {{ 'admin.updateUser' | t }}
     </button>
     <button
       type="button"
       class="row-action-btn danger"
       [disabled]="deletingUserId === menuUser.id || isDeleteDisabled(menuUser)"
-      [title]="isDeleteDisabled(menuUser) ? 'Admin users cannot be deleted' : 'Delete user'"
+      [title]="isDeleteDisabled(menuUser) ? ('admin.deleteAdminForbidden' | t) : ('admin.deleteUser' | t)"
       (click)="onDeleteFromMenu($event, menuUser)"
     >
       {{
         deletingUserId === menuUser.id
-          ? 'Deleting...'
+          ? ('admin.deleting' | t)
           : isDeleteDisabled(menuUser)
-            ? 'Delete (disabled)'
-            : 'Delete'
+            ? ('admin.deleteDisabled' | t)
+            : ('admin.deleteUser' | t)
       }}
     </button>
   </section>

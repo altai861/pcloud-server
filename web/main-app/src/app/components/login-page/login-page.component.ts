@@ -11,6 +11,8 @@ import { LoginFormModel } from '../../models/login-form.model';
 import { TPipe } from '../../pipes/t.pipe';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
+import { I18nService } from '../../services/i18n.service';
+import { ThemeService } from '../../services/theme.service';
 
 @Component({
   selector: 'app-login-page',
@@ -23,6 +25,8 @@ export class LoginPageComponent implements OnInit {
   isInitialized = false;
   loginSubmitting = false;
   loginErrorMessage = '';
+  isDarkMode = false;
+  currentLanguage: 'en' | 'mn' = 'en';
 
   form: LoginFormModel = {
     username: '',
@@ -32,12 +36,25 @@ export class LoginPageComponent implements OnInit {
   constructor(
     private readonly authApiService: AuthApiService,
     private readonly sessionService: ClientSessionService,
+    private readonly i18nService: I18nService,
+    private readonly themeService: ThemeService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
+    this.currentLanguage = this.i18nService.initializeLanguage();
+    this.isDarkMode = this.themeService.initializeTheme() === 'dark';
     this.loadStatusAndBootstrapSession();
+  }
+
+  toggleTheme(): void {
+    this.isDarkMode = this.themeService.toggleTheme() === 'dark';
+  }
+
+  toggleLanguage(): void {
+    this.currentLanguage = this.i18nService.toggleLanguage();
+    this.cdr.detectChanges();
   }
 
   submit(): void {
@@ -67,7 +84,7 @@ export class LoginPageComponent implements OnInit {
           this.router.navigate(['/app/storage']);
         },
         error: (error: unknown) => {
-          this.loginErrorMessage = this.extractError(error, 'Login failed');
+          this.loginErrorMessage = this.extractError(error, this.i18nService.t('login.error.loginFailed'));
           this.cdr.detectChanges();
         }
       });
@@ -85,7 +102,7 @@ export class LoginPageComponent implements OnInit {
           this.isInitialized = status.isInitialized;
 
           if (!status.isInitialized) {
-            this.loginErrorMessage = 'System setup is not completed yet. Open the admin launch app first.';
+            this.loginErrorMessage = this.i18nService.t('login.error.setupNotCompleted');
             this.checkingStatus = false;
             this.cdr.detectChanges();
             return;
@@ -101,7 +118,7 @@ export class LoginPageComponent implements OnInit {
           this.restoreSession(token);
         },
         error: (error: unknown) => {
-          this.loginErrorMessage = this.extractError(error, 'Failed to connect to cloud server');
+          this.loginErrorMessage = this.extractError(error, this.i18nService.t('login.error.connectFailed'));
           this.checkingStatus = false;
           this.cdr.detectChanges();
         }
@@ -122,7 +139,7 @@ export class LoginPageComponent implements OnInit {
         },
         error: () => {
           this.sessionService.clearSession();
-          this.loginErrorMessage = 'Session expired. Please sign in again.';
+          this.loginErrorMessage = this.i18nService.t('login.error.sessionExpired');
           this.cdr.detectChanges();
         }
       });
@@ -133,12 +150,12 @@ export class LoginPageComponent implements OnInit {
     const password = this.form.password;
 
     if (username.length === 0) {
-      this.loginErrorMessage = 'Username is required.';
+      this.loginErrorMessage = this.i18nService.t('login.error.usernameRequired');
       return null;
     }
 
     if (password.length === 0) {
-      this.loginErrorMessage = 'Password is required.';
+      this.loginErrorMessage = this.i18nService.t('login.error.passwordRequired');
       return null;
     }
 
@@ -155,7 +172,7 @@ export class LoginPageComponent implements OnInit {
       'name' in payload &&
       (payload as { name?: unknown }).name === 'TimeoutError'
     ) {
-      return 'Request timed out. Please check if the server is running and try again.';
+      return this.i18nService.t('login.error.timeout');
     }
 
     if (payload instanceof HttpErrorResponse) {

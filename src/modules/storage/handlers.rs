@@ -26,7 +26,7 @@ use axum::{
     extract::{Multipart, Query, State},
     http::{
         HeaderMap, StatusCode,
-        header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+        header::{ACCEPT_RANGES, AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
     },
     response::Response,
 };
@@ -561,43 +561,35 @@ pub async fn download_file(
     )
     .await?;
 
-    let file_handle = File::open(&file.absolute_path).await.map_err(|_| {
-        crate::error::ApiError::internal_with_context("Failed to open file for download")
-    })?;
-    let file_size = file_handle.metadata().await.map_err(|_| {
-        crate::error::ApiError::internal_with_context("Failed to read file metadata for download")
-    })?;
+    build_file_stream_response(file, true).await
+}
 
-    let stream = ReaderStream::new(file_handle);
-    let body = Body::from_stream(stream);
+pub async fn preview_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DownloadFileRequest>,
+) -> ApiResult<Response> {
+    let current_user = if headers.get(AUTHORIZATION).is_some() {
+        service::authenticate_headers(&state.pool, &headers).await?
+    } else if let Some(token) = query.access_token.as_deref() {
+        service::authenticate_access_token(&state.pool, token).await?
+    } else {
+        return Err(crate::error::ApiError::Unauthorized(
+            "Missing access token".to_owned(),
+        ));
+    };
 
-    let content_type = file
-        .mime_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            mime_guess::from_path(&file.download_name)
-                .first_or_octet_stream()
-                .to_string()
-        });
+    let file = storage_service::resolve_file_download(
+        &state.pool,
+        &current_user,
+        DownloadFileQuery {
+            path: query.path,
+            file_id: query.file_id,
+        },
+    )
+    .await?;
 
-    let file_name_escaped = file
-        .download_name
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    let content_disposition = format!("attachment; filename=\"{file_name_escaped}\"");
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, content_type)
-        .header(CONTENT_DISPOSITION, content_disposition)
-        .header(CONTENT_LENGTH, file_size.len().to_string())
-        .body(body)
-        .map_err(|_| {
-            crate::error::ApiError::internal_with_context("Failed to build file download response")
-        })
+    build_file_stream_response(file, false).await
 }
 
 pub async fn download_batch(
@@ -978,6 +970,55 @@ fn parse_entry_type(raw: &str) -> Result<StorageEntryKind, crate::error::ApiErro
             "entryType must be either 'folder' or 'file'".to_owned(),
         )),
     }
+}
+
+async fn build_file_stream_response(
+    file: storage_service::DownloadFileResult,
+    as_attachment: bool,
+) -> ApiResult<Response> {
+    let file_handle = File::open(&file.absolute_path).await.map_err(|_| {
+        crate::error::ApiError::internal_with_context("Failed to open file for download")
+    })?;
+    let file_size = file_handle.metadata().await.map_err(|_| {
+        crate::error::ApiError::internal_with_context("Failed to read file metadata for download")
+    })?;
+
+    let stream = ReaderStream::new(file_handle);
+    let body = Body::from_stream(stream);
+
+    let content_type = file
+        .mime_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            mime_guess::from_path(&file.download_name)
+                .first_or_octet_stream()
+                .to_string()
+        });
+
+    let file_name_escaped = file
+        .download_name
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let content_disposition_mode = if as_attachment {
+        "attachment"
+    } else {
+        "inline"
+    };
+    let content_disposition = format!("{content_disposition_mode}; filename=\"{file_name_escaped}\"");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_DISPOSITION, content_disposition)
+        .header(CONTENT_LENGTH, file_size.len().to_string())
+        .header(ACCEPT_RANGES, "bytes")
+        .body(body)
+        .map_err(|_| {
+            crate::error::ApiError::internal_with_context("Failed to build file stream response")
+        })
 }
 
 struct TempArchiveCleanupGuard {

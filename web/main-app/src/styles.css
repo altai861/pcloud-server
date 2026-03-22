@@ -41,9 +41,17 @@ body {
   margin: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: var(--theme-bg);
   color: var(--theme-text);
   transition: background-color 180ms ease, color 180ms ease;
+}
+
+app-root {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 *,

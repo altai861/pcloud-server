@@ -441,6 +441,35 @@ export class StorageApiService {
     return `${this.buildUrl(apiBaseUrl, '/api/client/storage/files/download')}?${params.toString()}`;
   }
 
+  buildFilePreviewUrl(
+    apiBaseUrl: string,
+    accessToken: string,
+    fileId: number
+  ): string {
+    const params = new URLSearchParams();
+    params.set('fileId', String(Math.trunc(fileId)));
+    params.set('accessToken', accessToken.trim());
+
+    return `${this.buildUrl(apiBaseUrl, '/api/client/storage/files/preview')}?${params.toString()}`;
+  }
+
+  previewTextFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    fileId: number
+  ): Observable<string> {
+    const params = new HttpParams().set('fileId', String(Math.trunc(fileId)));
+
+    return this.http.get(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/files/preview'),
+      {
+        headers: this.authHeaders(accessToken),
+        params,
+        responseType: 'text'
+      }
+    );
+  }
+
   downloadBatch(
     apiBaseUrl: string,
     accessToken: string,

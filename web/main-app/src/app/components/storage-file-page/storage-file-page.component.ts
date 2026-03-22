@@ -1,7 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewRef } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { PdfViewerModule } from 'ng2-pdf-viewer';
 import { Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
@@ -12,17 +13,53 @@ import { StorageApiService } from '../../services/storage-api.service';
 
 @Component({
   selector: 'app-storage-file-page',
-  imports: [CommonModule, TPipe],
+  imports: [CommonModule, TPipe, PdfViewerModule],
   templateUrl: './storage-file-page.component.html',
   styleUrl: './storage-file-page.component.css'
 })
 export class StorageFilePageComponent implements OnInit, OnDestroy {
+  private static readonly IMAGE_EXTENSIONS = new Set([
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif', 'tif', 'tiff', 'ico', 'avif'
+  ]);
+  private static readonly TEXT_EXTENSIONS = new Set([
+    'txt', 'md', 'markdown', 'json', 'xml', 'yaml', 'yml', 'toml', 'csv', 'tsv', 'log', 'ini', 'conf',
+    'rs', 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'html', 'css', 'scss', 'less', 'go', 'java', 'py',
+    'c', 'cpp', 'h', 'hpp', 'php', 'sh', 'sql'
+  ]);
+  private static readonly AUDIO_EXTENSIONS = new Set([
+    'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'
+  ]);
+  private static readonly VIDEO_EXTENSIONS = new Set([
+    'mp4', 'webm', 'mov', 'm4v', 'ogv'
+  ]);
+  private static readonly TEXT_MIME_TYPES = new Set([
+    'application/json',
+    'application/xml',
+    'application/x-yaml',
+    'application/yaml',
+    'application/toml',
+    'application/javascript',
+    'application/x-javascript',
+    'application/typescript',
+    'application/sql',
+    'image/svg+xml'
+  ]);
+  private static readonly MAX_TEXT_PREVIEW_BYTES = 5 * 1024 * 1024;
+
   private routeSub: Subscription | null = null;
   private metadataSub: Subscription | null = null;
+  private previewSub: Subscription | null = null;
 
   loading = false;
   errorMessage = '';
   metadata: StorageFileMetadataDto | null = null;
+  previewMode: 'none' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'unsupported' = 'none';
+  previewLoading = false;
+  previewErrorMessage = '';
+  previewText = '';
+  previewUrl: string | null = null;
+  previewUnsupportedReasonKey: string | null = null;
+  isMetadataModalOpen = false;
 
   constructor(
     private readonly route: ActivatedRoute,
@@ -41,7 +78,7 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
         this.errorMessage = 'Invalid file route';
         this.metadata = null;
         this.loading = false;
-        this.cdr.detectChanges();
+        this.requestViewRefresh();
         return;
       }
 
@@ -54,21 +91,8 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
     this.routeSub = null;
     this.metadataSub?.unsubscribe();
     this.metadataSub = null;
-  }
-
-  openContainingFolder(): void {
-    if (!this.metadata) {
-      return;
-    }
-
-    if (this.isSharedSource()) {
-      this.router.navigate(['/app/storage/folders', this.metadata.folderId], {
-        queryParams: { source: 'shared' }
-      });
-      return;
-    }
-
-    this.router.navigate(['/app/storage/folders', this.metadata.folderId]);
+    this.previewSub?.unsubscribe();
+    this.previewSub = null;
   }
 
   backToStorage(): void {
@@ -137,6 +161,18 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
     }).format(date);
   }
 
+  openMetadataModal(): void {
+    if (!this.metadata) {
+      return;
+    }
+
+    this.isMetadataModalOpen = true;
+  }
+
+  closeMetadataModal(): void {
+    this.isMetadataModalOpen = false;
+  }
+
   private loadMetadata(fileId: number): void {
     const accessToken = this.sessionService.readAccessToken();
     if (!accessToken) {
@@ -145,9 +181,12 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
     }
 
     this.metadataSub?.unsubscribe();
+    this.previewSub?.unsubscribe();
     this.loading = true;
     this.errorMessage = '';
     this.metadata = null;
+    this.isMetadataModalOpen = false;
+    this.resetPreviewState();
 
     this.metadataSub = this.storageApiService
       .fileMetadata('', accessToken, fileId)
@@ -155,7 +194,8 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
         next: (payload) => {
           this.metadata = payload;
           this.loading = false;
-          this.cdr.detectChanges();
+          this.loadPreview(fileId, payload, accessToken);
+          this.requestViewRefresh();
         },
         error: (error: unknown) => {
           this.loading = false;
@@ -166,7 +206,7 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
             return;
           }
 
-          this.cdr.detectChanges();
+          this.requestViewRefresh();
         }
       });
   }
@@ -201,5 +241,105 @@ export class StorageFilePageComponent implements OnInit, OnDestroy {
 
   private isSharedSource(): boolean {
     return this.route.snapshot.queryParamMap.get('source') === 'shared';
+  }
+
+  private loadPreview(
+    fileId: number,
+    metadata: StorageFileMetadataDto,
+    accessToken: string
+  ): void {
+    this.previewSub?.unsubscribe();
+    this.resetPreviewState();
+
+    const previewMode = this.resolvePreviewMode(metadata);
+    this.previewMode = previewMode;
+
+    if (previewMode === 'unsupported') {
+      this.previewUnsupportedReasonKey = 'fileMeta.previewUnsupported';
+      this.requestViewRefresh();
+      return;
+    }
+
+    if (previewMode === 'text' && metadata.sizeBytes > StorageFilePageComponent.MAX_TEXT_PREVIEW_BYTES) {
+      this.previewMode = 'unsupported';
+      this.previewUnsupportedReasonKey = 'fileMeta.previewTooLarge';
+      this.requestViewRefresh();
+      return;
+    }
+
+    this.previewLoading = true;
+
+    if (previewMode === 'image' || previewMode === 'pdf' || previewMode === 'audio' || previewMode === 'video') {
+      this.previewUrl = this.storageApiService.buildFilePreviewUrl('', accessToken, fileId);
+      this.previewLoading = false;
+      this.requestViewRefresh();
+      return;
+    }
+
+    this.previewSub = this.storageApiService.previewTextFile('', accessToken, fileId).subscribe({
+      next: (content) => {
+        this.previewText = content;
+        this.previewLoading = false;
+        this.requestViewRefresh();
+      },
+      error: (error: unknown) => {
+        this.previewLoading = false;
+        this.previewErrorMessage = this.extractError(error, 'Failed to load file preview');
+        this.requestViewRefresh();
+      }
+    });
+  }
+
+  private resolvePreviewMode(
+    metadata: StorageFileMetadataDto
+  ): 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'unsupported' {
+    const mimeType = (metadata.mimeType ?? '').trim().toLowerCase();
+    const extension = (metadata.extension ?? '').trim().replace(/^\./, '').toLowerCase();
+
+    if (mimeType === 'application/pdf' || extension === 'pdf') {
+      return 'pdf';
+    }
+
+    if (mimeType.startsWith('image/') || StorageFilePageComponent.IMAGE_EXTENSIONS.has(extension)) {
+      return 'image';
+    }
+
+    if (
+      mimeType.startsWith('text/') ||
+      StorageFilePageComponent.TEXT_MIME_TYPES.has(mimeType) ||
+      StorageFilePageComponent.TEXT_EXTENSIONS.has(extension)
+    ) {
+      return 'text';
+    }
+
+    if (mimeType.startsWith('audio/') || StorageFilePageComponent.AUDIO_EXTENSIONS.has(extension)) {
+      return 'audio';
+    }
+
+    if (mimeType.startsWith('video/') || StorageFilePageComponent.VIDEO_EXTENSIONS.has(extension)) {
+      return 'video';
+    }
+
+    return 'unsupported';
+  }
+
+  private resetPreviewState(): void {
+    this.previewMode = 'none';
+    this.previewLoading = false;
+    this.previewErrorMessage = '';
+    this.previewText = '';
+    this.previewUrl = null;
+    this.previewUnsupportedReasonKey = null;
+  }
+
+  private requestViewRefresh(): void {
+    queueMicrotask(() => {
+      const viewRef = this.cdr as ViewRef;
+      if (viewRef.destroyed) {
+        return;
+      }
+
+      this.cdr.detectChanges();
+    });
   }
 }

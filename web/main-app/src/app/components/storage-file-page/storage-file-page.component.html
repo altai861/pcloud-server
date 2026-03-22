@@ -1,23 +1,76 @@
 <section class="file-page">
-  <header class="file-header">
-    <div>
-      <h2>{{ 'fileMeta.title' | t }}</h2>
-      <p *ngIf="metadata">{{ metadata.name }}</p>
-    </div>
+  <section class="page-actions">
+    <button
+      type="button"
+      class="back-button"
+      (click)="backToStorage()"
+      [attr.aria-label]="'fileMeta.backToStorage' | t"
+      [title]="'fileMeta.backToStorage' | t"
+    >
+      <span aria-hidden="true">&#8592;</span>
+    </button>
 
-    <div class="header-actions">
-      <button type="button" (click)="backToStorage()">{{ 'fileMeta.backToStorage' | t }}</button>
-      <button type="button" class="primary" (click)="openContainingFolder()" [disabled]="!metadata">
-        {{ 'fileMeta.openContainingFolder' | t }}
-      </button>
-    </div>
-  </header>
+    <button
+      type="button"
+      class="info-button"
+      (click)="openMetadataModal()"
+      [disabled]="!metadata"
+      [attr.aria-label]="'storage.information' | t"
+      [title]="'storage.information' | t"
+    >
+      <img src="info.png" [alt]="'storage.information' | t" />
+    </button>
+  </section>
 
   <section class="file-card">
     <p class="status-text" *ngIf="loading">{{ 'fileMeta.loading' | t }}</p>
     <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
 
-    <dl class="meta-grid" *ngIf="!loading && metadata">
+    <section class="preview-card" *ngIf="!loading && metadata">
+      <p class="status-text" *ngIf="previewLoading">{{ 'fileMeta.previewLoading' | t }}</p>
+      <p class="status-text error" *ngIf="!previewLoading && previewErrorMessage">{{ previewErrorMessage }}</p>
+      <p class="status-text" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'unsupported'">
+        {{ (previewUnsupportedReasonKey ?? 'fileMeta.previewUnsupported') | t }}
+      </p>
+
+      <div class="preview-frame image-frame" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'image' && previewUrl">
+        <img [src]="previewUrl" [alt]="metadata.name" />
+      </div>
+
+      <div class="preview-frame pdf-frame" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'pdf' && previewUrl">
+        <pdf-viewer
+          class="pdf-viewer"
+          [src]="previewUrl"
+          [render-text]="true"
+          [show-all]="true"
+          [original-size]="true"
+          [fit-to-page]="false"
+          [show-borders]="false"
+          [autoresize]="true"
+        ></pdf-viewer>
+      </div>
+
+      <div class="preview-frame audio-frame" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'audio' && previewUrl">
+        <audio class="audio-player" [src]="previewUrl" controls preload="metadata"></audio>
+      </div>
+
+      <div class="preview-frame video-frame" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'video' && previewUrl">
+        <video class="video-player" [src]="previewUrl" controls="controls" preload="metadata" playsinline></video>
+      </div>
+
+      <pre class="text-preview" *ngIf="!previewLoading && !previewErrorMessage && previewMode === 'text'">{{ previewText }}</pre>
+    </section>
+  </section>
+</section>
+
+<section class="metadata-overlay" *ngIf="isMetadataModalOpen" (click)="closeMetadataModal()">
+  <article class="metadata-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <header class="metadata-header">
+      <h2>{{ 'fileMeta.title' | t }}</h2>
+      <button type="button" class="metadata-close" (click)="closeMetadataModal()">{{ 'common.close' | t }}</button>
+    </header>
+
+    <dl class="meta-grid" *ngIf="metadata">
       <dt>{{ 'fileMeta.name' | t }}</dt>
       <dd>{{ metadata.name }}</dd>
 
@@ -51,5 +104,5 @@
       <dt>{{ 'fileMeta.modified' | t }}</dt>
       <dd>{{ formatDate(metadata.modifiedAtUnixMs) }}</dd>
     </dl>
-  </section>
+  </article>
 </section>

@@ -1,4 +1,33 @@
 <main class="client-shell">
+  <section class="top-actions">
+    <button
+      type="button"
+      class="lang-toggle"
+      [attr.aria-label]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+      [title]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+      (click)="toggleLanguage()"
+    >
+      <img
+        class="lang-toggle-icon"
+        [src]="currentLanguage === 'en' ? 'mongolian.png' : 'english.png'"
+        [alt]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+      />
+    </button>
+    <button
+      type="button"
+      class="theme-toggle"
+      [attr.aria-label]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)"
+      [title]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)"
+      (click)="toggleTheme()"
+    >
+      <img
+        class="theme-toggle-icon"
+        [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
+        [alt]="isDarkMode ? ('theme.lightIcon' | t) : ('theme.darkIcon' | t)"
+      />
+    </button>
+  </section>
+
   <header class="logo-card">
     <h1>PCloud</h1>
   </header>

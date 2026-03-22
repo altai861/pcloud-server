@@ -34,6 +34,17 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
   isNewMenuOpen = false;
   currentLanguage: 'en' | 'mn' = 'en';
 
+  get storageUsagePercent(): number {
+    const quota = this.currentUser?.storageQuotaBytes ?? 0;
+    const used = this.currentUser?.storageUsedBytes ?? 0;
+
+    if (!Number.isFinite(quota) || quota <= 0 || !Number.isFinite(used) || used <= 0) {
+      return 0;
+    }
+
+    return Math.min(100, Math.max(0, (used / quota) * 100));
+  }
+
   constructor(
     private readonly authApiService: AuthApiService,
     private readonly sessionService: ClientSessionService,

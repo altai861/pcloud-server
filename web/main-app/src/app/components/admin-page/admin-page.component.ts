@@ -8,12 +8,14 @@ import { AdminCreateUserRequestDto } from '../../dto/admin-create-user-request.d
 import { AdminUpdateUserRequestDto } from '../../dto/admin-update-user-request.dto';
 import { AdminUserDto } from '../../dto/admin-user.dto';
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
+import { TPipe } from '../../pipes/t.pipe';
 import { AdminApiService } from '../../services/admin-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
+import { I18nService } from '../../services/i18n.service';
 
 @Component({
   selector: 'app-admin-page',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TPipe],
   templateUrl: './admin-page.component.html',
   styleUrl: './admin-page.component.css'
 })
@@ -58,6 +60,7 @@ export class AdminPageComponent implements OnInit {
   constructor(
     private readonly adminApiService: AdminApiService,
     private readonly sessionService: ClientSessionService,
+    private readonly i18nService: I18nService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
   ) {}
@@ -178,7 +181,7 @@ export class AdminPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.creating = false;
-        this.createErrorMessage = this.extractError(error, 'Failed to create user');
+        this.createErrorMessage = this.extractError(error, this.i18nService.t('admin.error.createUser'));
 
         if (error instanceof HttpErrorResponse && error.status === 401) {
           this.sessionService.clearSession();
@@ -220,7 +223,7 @@ export class AdminPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.updating = false;
-        this.updateErrorMessage = this.extractError(error, 'Failed to update user');
+        this.updateErrorMessage = this.extractError(error, this.i18nService.t('admin.error.updateUser'));
 
         if (error instanceof HttpErrorResponse && error.status === 401) {
           this.sessionService.clearSession();
@@ -235,12 +238,12 @@ export class AdminPageComponent implements OnInit {
 
   confirmDeleteUser(user: AdminUserDto): void {
     if (this.isDeleteDisabled(user)) {
-      this.actionErrorMessage = 'Admin users cannot be deleted.';
+      this.actionErrorMessage = this.i18nService.t('admin.deleteAdminForbidden');
       return;
     }
 
     const shouldDelete = window.confirm(
-      `Delete user "${user.username}"? This will permanently remove all owned files and folders.`
+      this.i18nService.t('admin.confirmDeleteUser', { username: user.username })
     );
     if (!shouldDelete) {
       return;
@@ -272,7 +275,7 @@ export class AdminPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.deletingUserId = null;
-        this.actionErrorMessage = this.extractError(error, 'Failed to delete user');
+        this.actionErrorMessage = this.extractError(error, this.i18nService.t('admin.error.deleteUser'));
 
         if (error instanceof HttpErrorResponse && error.status === 401) {
           this.sessionService.clearSession();
@@ -369,10 +372,13 @@ export class AdminPageComponent implements OnInit {
       this.createForm.storageQuotaBytes
     );
     if (resolved.value === null) {
-      return 'Enter size like 4GB and/or exact bytes';
+      return this.i18nService.t('admin.quota.previewHint');
     }
 
-    return `${resolved.value.toLocaleString()} bytes (${this.formatSize(resolved.value)})`;
+    return this.i18nService.t('admin.quota.previewValue', {
+      bytes: resolved.value.toLocaleString(),
+      size: this.formatSize(resolved.value)
+    });
   }
 
   get updateQuotaBytesPreviewText(): string {
@@ -381,10 +387,13 @@ export class AdminPageComponent implements OnInit {
       this.updateForm.storageQuotaBytes
     );
     if (resolved.value === null) {
-      return 'Enter size like 4GB and/or exact bytes';
+      return this.i18nService.t('admin.quota.previewHint');
     }
 
-    return `${resolved.value.toLocaleString()} bytes (${this.formatSize(resolved.value)})`;
+    return this.i18nService.t('admin.quota.previewValue', {
+      bytes: resolved.value.toLocaleString(),
+      size: this.formatSize(resolved.value)
+    });
   }
 
   formatSize(bytes: number): string {
@@ -447,7 +456,7 @@ export class AdminPageComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.loading = false;
-        this.errorMessage = this.extractError(error, 'Failed to load users');
+        this.errorMessage = this.extractError(error, this.i18nService.t('admin.error.loadUsers'));
 
         if (error instanceof HttpErrorResponse && error.status === 401) {
           this.sessionService.clearSession();
@@ -469,43 +478,43 @@ export class AdminPageComponent implements OnInit {
     const warnings: string[] = [];
 
     if (!username || !email || !fullName || !password || !passwordConfirmation) {
-      warnings.push('Please fill username, email, full name, password and confirmation.');
+      warnings.push(this.i18nService.t('admin.validation.fillCreateRequired'));
     }
 
     if (username && (username.length < 3 || username.length > 32)) {
-      warnings.push('Username length must be between 3 and 32 characters.');
+      warnings.push(this.i18nService.t('admin.validation.usernameLength'));
     }
 
     if (username && !/^[A-Za-z0-9._-]+$/.test(username)) {
-      warnings.push("Username can contain only letters, numbers, '.', '-' and '_'.");
+      warnings.push(this.i18nService.t('admin.validation.usernameFormat'));
     }
 
     if (email && !this.looksLikeEmail(email)) {
-      warnings.push('Email format is invalid.');
+      warnings.push(this.i18nService.t('admin.validation.emailFormat'));
     }
 
     if (fullName && fullName.length > 120) {
-      warnings.push('Full name must be 120 characters or less.');
+      warnings.push(this.i18nService.t('admin.validation.fullNameLength'));
     }
 
     if (password && password.length < 8) {
-      warnings.push('Password must be at least 8 characters long.');
+      warnings.push(this.i18nService.t('admin.validation.passwordLength'));
     }
 
     if (password && !/[A-Z]/.test(password)) {
-      warnings.push('Password must include at least one uppercase letter.');
+      warnings.push(this.i18nService.t('admin.validation.passwordUpper'));
     }
 
     if (password && !/[a-z]/.test(password)) {
-      warnings.push('Password must include at least one lowercase letter.');
+      warnings.push(this.i18nService.t('admin.validation.passwordLower'));
     }
 
     if (password && !/[0-9]/.test(password)) {
-      warnings.push('Password must include at least one number.');
+      warnings.push(this.i18nService.t('admin.validation.passwordDigit'));
     }
 
     if (password !== passwordConfirmation) {
-      warnings.push('Password confirmation does not match.');
+      warnings.push(this.i18nService.t('admin.validation.passwordMismatch'));
     }
 
     const quota = this.resolveQuotaBytesFromFields(
@@ -518,7 +527,7 @@ export class AdminPageComponent implements OnInit {
 
     if (warnings.length > 0 || quota.value === null) {
       this.createWarnings = warnings;
-      this.createErrorMessage = warnings[0] ?? 'Please check the form fields.';
+      this.createErrorMessage = warnings[0] ?? this.i18nService.t('admin.validation.checkFields');
       return null;
     }
 
@@ -539,23 +548,23 @@ export class AdminPageComponent implements OnInit {
     const warnings: string[] = [];
 
     if (!username || !email || !fullName) {
-      warnings.push('Please fill username, email, and full name.');
+      warnings.push(this.i18nService.t('admin.validation.fillUpdateRequired'));
     }
 
     if (username && (username.length < 3 || username.length > 32)) {
-      warnings.push('Username length must be between 3 and 32 characters.');
+      warnings.push(this.i18nService.t('admin.validation.usernameLength'));
     }
 
     if (username && !/^[A-Za-z0-9._-]+$/.test(username)) {
-      warnings.push("Username can contain only letters, numbers, '.', '-' and '_'.");
+      warnings.push(this.i18nService.t('admin.validation.usernameFormat'));
     }
 
     if (email && !this.looksLikeEmail(email)) {
-      warnings.push('Email format is invalid.');
+      warnings.push(this.i18nService.t('admin.validation.emailFormat'));
     }
 
     if (fullName && fullName.length > 120) {
-      warnings.push('Full name must be 120 characters or less.');
+      warnings.push(this.i18nService.t('admin.validation.fullNameLength'));
     }
 
     const quota = this.resolveQuotaBytesFromFields(
@@ -568,7 +577,7 @@ export class AdminPageComponent implements OnInit {
 
     if (warnings.length > 0 || quota.value === null) {
       this.updateWarnings = warnings;
-      this.updateErrorMessage = warnings[0] ?? 'Please check the form fields.';
+      this.updateErrorMessage = warnings[0] ?? this.i18nService.t('admin.validation.checkFields');
       return null;
     }
 
@@ -612,29 +621,29 @@ export class AdminPageComponent implements OnInit {
     const bytesRaw = bytesRawValue.trim();
 
     if (friendlyRaw === '' && bytesRaw === '') {
-      return { value: null, error: 'Storage quota is required.' };
+      return { value: null, error: this.i18nService.t('admin.validation.quotaRequired') };
     }
 
     const friendlyBytes = friendlyRaw === '' ? null : this.parseStorageSize(friendlyRaw);
     if (friendlyRaw !== '' && friendlyBytes === null) {
       return {
         value: null,
-        error: 'Invalid quota size format. Use values like 500GB, 1.5TB, 800GiB, or input bytes.'
+        error: this.i18nService.t('admin.validation.invalidQuotaSize')
       };
     }
 
     const bytesValue = bytesRaw === '' ? null : this.parseBytesField(bytesRaw);
     if (bytesRaw !== '' && bytesValue === null) {
-      return { value: null, error: 'Quota bytes must be a non-negative integer.' };
+      return { value: null, error: this.i18nService.t('admin.validation.invalidQuotaBytes') };
     }
 
     if (friendlyBytes !== null && bytesValue !== null && friendlyBytes !== bytesValue) {
-      return { value: null, error: 'Quota size and bytes input do not match.' };
+      return { value: null, error: this.i18nService.t('admin.validation.quotaMismatch') };
     }
 
     const finalValue = bytesValue ?? friendlyBytes;
     if (finalValue === null) {
-      return { value: null, error: 'Storage quota is required.' };
+      return { value: null, error: this.i18nService.t('admin.validation.quotaRequired') };
     }
 
     return { value: finalValue };
