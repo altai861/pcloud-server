@@ -33,6 +33,12 @@ pub struct UploadFileInput {
     pub checksum: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RenameStorageInput {
+    pub path: Option<String>,
+    pub new_name: String,
+}
+
 #[derive(Debug, FromRow)]
 struct SystemStorageRow {
     storage_root_path: String,
@@ -95,6 +101,23 @@ struct DeleteFolderRow {
 struct TrashedFolderRestoreRow {
     path: String,
     parent_is_deleted: Option<bool>,
+}
+
+#[derive(Debug, FromRow)]
+struct RenameFileRow {
+    id: i64,
+    name: String,
+    storage_path: String,
+    folder_id: i64,
+    folder_path: String,
+}
+
+#[derive(Debug, FromRow)]
+struct RenameFolderRow {
+    id: i64,
+    name: String,
+    path: String,
+    parent_folder_id: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -608,6 +631,295 @@ pub async fn upload_file(
     }
 
     Ok(storage_entry_row_to_dto(inserted))
+}
+
+pub async fn rename_file(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: RenameStorageInput,
+) -> Result<StorageEntryDto, ApiError> {
+    let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Requested path must point to a file".to_owned(),
+        ));
+    }
+
+    let new_name = normalize_item_name(&input.new_name, "File name")?;
+    let settings = load_system_storage_settings(pool).await?;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to start file rename transaction"))?;
+
+    let target_file =
+        load_file_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    if target_file.name == new_name {
+        return Ok(StorageEntryDto {
+            name: target_file.name,
+            path: normalize_db_path(&requested_path),
+            entry_type: "file".to_owned(),
+            size_bytes: None,
+            modified_at_unix_ms: None,
+        });
+    }
+
+    ensure_name_not_taken_tx(
+        &mut tx,
+        current_user.user.id,
+        target_file.folder_id,
+        &new_name,
+    )
+    .await?;
+
+    let old_storage_rel = PathBuf::from(target_file.storage_path.trim_start_matches('/'));
+    let new_storage_rel = old_storage_rel
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            ApiError::internal_with_context("Invalid stored file path for rename operation")
+        })?
+        .join(&new_name);
+
+    let new_storage_path = format!("/{}", new_storage_rel.to_string_lossy().replace('\\', "/"));
+    let old_absolute_path = PathBuf::from(&settings.storage_root_path).join(&old_storage_rel);
+    let new_absolute_path = PathBuf::from(&settings.storage_root_path).join(&new_storage_rel);
+
+    if new_absolute_path.exists() {
+        return Err(ApiError::Conflict(
+            "An item with the same name already exists in this folder".to_owned(),
+        ));
+    }
+
+    if fs::rename(&old_absolute_path, &new_absolute_path).is_err() {
+        return Err(ApiError::internal_with_context(
+            "Failed to rename file on the storage filesystem",
+        ));
+    }
+
+    let updated = match sqlx::query_as::<_, StorageEntryRow>(
+        r#"
+        UPDATE files
+        SET name = $3,
+            original_file_name = $3,
+            storage_path = $4,
+            updated_at = NOW()
+        WHERE id = $1
+          AND owner_user_id = $2
+          AND is_deleted = false
+        RETURNING
+            name,
+            CASE
+                WHEN $5::TEXT = '/' THEN '/' || name
+                ELSE $5::TEXT || '/' || name
+            END AS path,
+            'file'::TEXT AS entry_type,
+            size_bytes,
+            (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+        "#,
+    )
+    .bind(target_file.id)
+    .bind(current_user.user.id)
+    .bind(&new_name)
+    .bind(&new_storage_path)
+    .bind(normalize_db_path(&target_file.folder_path))
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(entry) => entry,
+        Err(error) => {
+            let _ = fs::rename(&new_absolute_path, &old_absolute_path);
+            return Err(map_storage_write_error(error));
+        }
+    };
+
+    if tx.commit().await.is_err() {
+        let _ = fs::rename(&new_absolute_path, &old_absolute_path);
+        return Err(ApiError::internal_with_context(
+            "Failed to commit file rename transaction",
+        ));
+    }
+
+    Ok(storage_entry_row_to_dto(updated))
+}
+
+pub async fn rename_folder(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: RenameStorageInput,
+) -> Result<StorageEntryDto, ApiError> {
+    let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Root folder cannot be renamed".to_owned(),
+        ));
+    }
+
+    let new_name = normalize_item_name(&input.new_name, "Folder name")?;
+    let settings = load_system_storage_settings(pool).await?;
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start folder rename transaction")
+    })?;
+
+    let target_folder =
+        load_folder_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    if target_folder.name == new_name {
+        return Ok(StorageEntryDto {
+            name: target_folder.name,
+            path: normalize_db_path(&target_folder.path),
+            entry_type: "folder".to_owned(),
+            size_bytes: None,
+            modified_at_unix_ms: None,
+        });
+    }
+
+    let parent_folder_id = target_folder
+        .parent_folder_id
+        .ok_or_else(|| ApiError::BadRequest("Root folder cannot be renamed".to_owned()))?;
+
+    ensure_name_not_taken_tx(&mut tx, current_user.user.id, parent_folder_id, &new_name).await?;
+
+    let parent_path = parent_api_path(&target_folder.path)
+        .ok_or_else(|| ApiError::BadRequest("Root folder cannot be renamed".to_owned()))?;
+    let new_folder_path = join_child_path(&parent_path, &new_name);
+    let old_folder_prefix = format!("{}/%", target_folder.path.trim_end_matches('/'));
+
+    let old_storage_prefix =
+        logical_path_to_storage_prefix(current_user.user.id, &target_folder.path);
+    let new_storage_prefix = logical_path_to_storage_prefix(current_user.user.id, &new_folder_path);
+    let old_storage_prefix_like = format!("{}/%", old_storage_prefix.trim_end_matches('/'));
+
+    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let old_folder_abs = user_root.join(logical_path_to_relative_path(&target_folder.path));
+    let new_folder_abs = user_root.join(logical_path_to_relative_path(&new_folder_path));
+
+    if new_folder_abs.exists() {
+        return Err(ApiError::Conflict(
+            "An item with the same name already exists in this folder".to_owned(),
+        ));
+    }
+
+    if fs::rename(&old_folder_abs, &new_folder_abs).is_err() {
+        return Err(ApiError::internal_with_context(
+            "Failed to rename folder on the storage filesystem",
+        ));
+    }
+
+    if let Err(error) = sqlx::query(
+        r#"
+        UPDATE folders
+        SET name = $3,
+            updated_at = NOW()
+        WHERE id = $1
+          AND owner_user_id = $2
+        "#,
+    )
+    .bind(target_folder.id)
+    .bind(current_user.user.id)
+    .bind(&new_name)
+    .execute(&mut *tx)
+    .await
+    {
+        let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+        return Err(map_storage_write_error(error));
+    }
+
+    if let Err(error) = sqlx::query(
+        r#"
+        UPDATE folders
+        SET path = CASE
+            WHEN path = $2 THEN $3
+            ELSE $3 || SUBSTRING(path FROM CHAR_LENGTH($2) + 1)
+        END,
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND (
+              path = $2
+              OR path LIKE $4
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&new_folder_path)
+    .bind(&old_folder_prefix)
+    .execute(&mut *tx)
+    .await
+    {
+        let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+        return Err(map_storage_write_error(error));
+    }
+
+    if let Err(error) = sqlx::query(
+        r#"
+        UPDATE files
+        SET storage_path = CASE
+            WHEN storage_path = $2 THEN $3
+            ELSE $3 || SUBSTRING(storage_path FROM CHAR_LENGTH($2) + 1)
+        END,
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND (
+              storage_path = $2
+              OR storage_path LIKE $4
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&old_storage_prefix)
+    .bind(&new_storage_prefix)
+    .bind(&old_storage_prefix_like)
+    .execute(&mut *tx)
+    .await
+    {
+        let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+        return Err(map_storage_write_error(error));
+    }
+
+    let renamed_folder = match sqlx::query_as::<_, StorageEntryRow>(
+        r#"
+        SELECT
+            name,
+            path,
+            'folder'::TEXT AS entry_type,
+            NULL::BIGINT AS size_bytes,
+            (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
+        FROM folders
+        WHERE id = $1
+          AND owner_user_id = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(target_folder.id)
+    .bind(current_user.user.id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(entry)) => entry,
+        Ok(None) => {
+            let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+            return Err(ApiError::BadRequest(
+                "Requested folder does not exist".to_owned(),
+            ));
+        }
+        Err(error) => {
+            let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+            return Err(map_storage_write_error(error));
+        }
+    };
+
+    if tx.commit().await.is_err() {
+        let _ = fs::rename(&new_folder_abs, &old_folder_abs);
+        return Err(ApiError::internal_with_context(
+            "Failed to commit folder rename transaction",
+        ));
+    }
+
+    Ok(storage_entry_row_to_dto(renamed_folder))
 }
 
 pub async fn delete_file(
@@ -1273,6 +1585,70 @@ async fn load_trashed_file_for_deletion_tx(
     .ok_or_else(|| ApiError::BadRequest("Requested file does not exist in trash".to_owned()))
 }
 
+async fn load_file_for_rename_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<RenameFileRow, ApiError> {
+    sqlx::query_as::<_, RenameFileRow>(
+        r#"
+        SELECT
+            file_row.id,
+            file_row.name,
+            file_row.storage_path,
+            file_row.folder_id,
+            folder.path AS folder_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+          AND (
+              CASE
+                  WHEN folder.path = '/' THEN '/' || file_row.name
+                  ELSE folder.path || '/' || file_row.name
+              END
+          ) = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve file rename path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))
+}
+
+async fn load_folder_for_rename_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<RenameFolderRow, ApiError> {
+    sqlx::query_as::<_, RenameFolderRow>(
+        r#"
+        SELECT
+            id,
+            name,
+            path,
+            parent_folder_id
+        FROM folders
+        WHERE owner_user_id = $1
+          AND path = $2
+          AND is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve folder rename path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned()))
+}
+
 async fn load_folder_for_deletion_tx(
     tx: &mut Transaction<'_, Postgres>,
     user_id: i64,
@@ -1702,6 +2078,12 @@ fn logical_path_to_relative_path(logical_path: &str) -> PathBuf {
     }
 
     relative
+}
+
+fn logical_path_to_storage_prefix(user_id: i64, logical_path: &str) -> String {
+    let relative = logical_path_to_relative_path(logical_path);
+    let storage_rel = Path::new("users").join(user_id.to_string()).join(relative);
+    format!("/{}", storage_rel.to_string_lossy().replace('\\', "/"))
 }
 
 fn move_temp_file(source: &Path, target: &Path) -> Result<(), ApiError> {

@@ -391,6 +391,106 @@ button {
   background: color-mix(in srgb, var(--theme-danger, #c61e1e) 10%, var(--panel));
 }
 
+.rename-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.rename-modal {
+  width: min(440px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--theme-shadow);
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.rename-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rename-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.rename-header button {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--input);
+  color: var(--text);
+  min-height: 32px;
+  padding: 0 0.68rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.rename-field {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.rename-field span {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.rename-field input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 0.62rem;
+  background: var(--input);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.44rem;
+}
+
+.rename-actions button {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  min-height: 34px;
+  padding: 0 0.72rem;
+  background: var(--input);
+  color: var(--text);
+  font-size: 0.86rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.rename-actions button.primary {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 18%, var(--input));
+}
+
+.rename-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rename-modal .status-text {
+  padding: 0;
+  font-size: 0.84rem;
+}
+
 .status-text {
   margin: 0;
   padding: 0.8rem;

@@ -9,8 +9,8 @@ use crate::{
                 StorageMutationResponse, StorageRestoreResponse,
             },
             service::{
-                self as storage_service, CreateFolderInput, StorageFolderMetadataResult,
-                StorageListQuery, UploadFileInput,
+                self as storage_service, CreateFolderInput, RenameStorageInput,
+                StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
             },
         },
     },
@@ -69,6 +69,13 @@ pub struct DownloadFileRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteStorageRequest {
     pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameStorageRequest {
+    pub path: Option<String>,
+    pub new_name: String,
 }
 
 pub async fn list(
@@ -159,6 +166,52 @@ pub async fn create_folder(
 
     Ok(Json(StorageMutationResponse {
         message: "Folder created successfully".to_owned(),
+        entry,
+    }))
+}
+
+pub async fn rename_folder(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RenameStorageRequest>,
+) -> ApiResult<Json<StorageMutationResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let entry = storage_service::rename_folder(
+        &state.pool,
+        &current_user,
+        RenameStorageInput {
+            path: payload.path,
+            new_name: payload.new_name,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageMutationResponse {
+        message: "Folder renamed successfully".to_owned(),
+        entry,
+    }))
+}
+
+pub async fn rename_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RenameStorageRequest>,
+) -> ApiResult<Json<StorageMutationResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let entry = storage_service::rename_file(
+        &state.pool,
+        &current_user,
+        RenameStorageInput {
+            path: payload.path,
+            new_name: payload.new_name,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageMutationResponse {
+        message: "File renamed successfully".to_owned(),
         entry,
     }))
 }

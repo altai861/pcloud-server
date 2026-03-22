@@ -125,12 +125,44 @@
   (click)="$event.stopPropagation()"
   (contextmenu)="$event.preventDefault()"
 >
+  <button type="button" (click)="onRenameEntryClick($event)">
+    Rename
+  </button>
   <button type="button" (click)="onDownloadEntryClick($event)" [disabled]="isEntryDownloadDisabled">
     Download
   </button>
   <button type="button" class="danger" (click)="onDeleteEntryClick($event)">
     Move to Trash
   </button>
+</section>
+
+<section class="rename-overlay" *ngIf="isRenameModalOpen" (click)="closeRenameModal()">
+  <article class="rename-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <header class="rename-header">
+      <h2>Rename {{ renameTarget?.entryType ?? 'item' }}</h2>
+      <button type="button" (click)="closeRenameModal()">Close</button>
+    </header>
+
+    <label class="rename-field">
+      <span>New name</span>
+      <input
+        type="text"
+        [value]="renameValue"
+        (input)="renameValue = $any($event.target).value"
+        [disabled]="renameSubmitting"
+        maxlength="255"
+      />
+    </label>
+
+    <p class="status-text error" *ngIf="renameErrorMessage">{{ renameErrorMessage }}</p>
+
+    <footer class="rename-actions">
+      <button type="button" (click)="closeRenameModal()" [disabled]="renameSubmitting">Cancel</button>
+      <button type="button" class="primary" (click)="submitRename()" [disabled]="renameSubmitting">
+        {{ renameSubmitting ? 'Renaming...' : 'Rename' }}
+      </button>
+    </footer>
+  </article>
 </section>
 
 <section class="folder-metadata-overlay" *ngIf="isFolderMetadataOpen" (click)="closeFolderMetadata()">

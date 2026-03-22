@@ -54,6 +54,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   entryMenuX = 0;
   entryMenuY = 0;
   entryMenuTarget: StorageEntryDto | null = null;
+  isRenameModalOpen = false;
+  renameTarget: StorageEntryDto | null = null;
+  renameValue = '';
+  renameErrorMessage = '';
+  renameSubmitting = false;
   ownerProfileImageSrc: string | null = null;
 
   constructor(
@@ -170,6 +175,24 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.downloadEntry(selectedEntry);
   }
 
+  onRenameEntryClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const selectedEntry = this.entryMenuTarget;
+    if (!selectedEntry) {
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.renameTarget = selectedEntry;
+    this.renameValue = selectedEntry.name;
+    this.renameErrorMessage = '';
+    this.renameSubmitting = false;
+    this.isRenameModalOpen = true;
+    this.cdr.detectChanges();
+  }
+
   onDeleteEntryClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -214,6 +237,68 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
         },
         error: (error: unknown) => {
           this.storageErrorMessage = this.extractError(error, `Failed to move ${selectedEntry.entryType} to trash`);
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  closeRenameModal(): void {
+    this.isRenameModalOpen = false;
+    this.renameTarget = null;
+    this.renameValue = '';
+    this.renameErrorMessage = '';
+    this.renameSubmitting = false;
+  }
+
+  submitRename(): void {
+    const target = this.renameTarget;
+    if (!target) {
+      return;
+    }
+
+    const nextName = this.renameValue.trim();
+    if (nextName.length === 0) {
+      this.renameErrorMessage = 'Name cannot be empty';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    if (nextName === target.name) {
+      this.closeRenameModal();
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.renameSubmitting = true;
+    this.renameErrorMessage = '';
+
+    const request = target.entryType === 'folder'
+      ? this.storageApiService.renameFolder('', accessToken, target.path, nextName)
+      : this.storageApiService.renameFile('', accessToken, target.path, nextName);
+
+    request
+      .pipe(finalize(() => {
+        this.renameSubmitting = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.closeRenameModal();
+          this.loadStorage(this.currentPath);
+        },
+        error: (error: unknown) => {
+          this.renameErrorMessage = this.extractError(error, `Failed to rename ${target.entryType}`);
 
           if (error instanceof HttpErrorResponse && error.status === 401) {
             this.redirectToLogin();
@@ -342,6 +427,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscapePressed(): void {
+    if (this.isRenameModalOpen) {
+      this.closeRenameModal();
+      this.cdr.detectChanges();
+      return;
+    }
+
     if (!this.isEntryMenuOpen) {
       return;
     }
@@ -512,7 +603,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto): void {
     const menuWidth = 176;
-    const menuHeight = 98;
+    const menuHeight = 132;
     const viewportPadding = 8;
 
     const left = Math.max(

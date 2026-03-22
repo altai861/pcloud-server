@@ -77,6 +77,42 @@ export class StorageApiService {
     );
   }
 
+  renameFolder(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string,
+    newName: string
+  ): Observable<StorageMutationResponseDto> {
+    return this.http.put<StorageMutationResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/folders'),
+      {
+        path,
+        newName
+      },
+      {
+        headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
+  renameFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string,
+    newName: string
+  ): Observable<StorageMutationResponseDto> {
+    return this.http.put<StorageMutationResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/files'),
+      {
+        path,
+        newName
+      },
+      {
+        headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
   folderMetadata(
     apiBaseUrl: string,
     accessToken: string,

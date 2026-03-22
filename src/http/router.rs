@@ -38,7 +38,9 @@ pub fn build_client_router(state: AppState) -> Router {
         )
         .route(
             "/api/client/storage/folders",
-            post(storage_handlers::create_folder).delete(storage_handlers::delete_folder),
+            post(storage_handlers::create_folder)
+                .put(storage_handlers::rename_folder)
+                .delete(storage_handlers::delete_folder),
         )
         .route(
             "/api/client/storage/files/upload",
@@ -47,7 +49,7 @@ pub fn build_client_router(state: AppState) -> Router {
         )
         .route(
             "/api/client/storage/files",
-            delete(storage_handlers::delete_file),
+            put(storage_handlers::rename_file).delete(storage_handlers::delete_file),
         )
         .route(
             "/api/client/storage/trash/folders",
