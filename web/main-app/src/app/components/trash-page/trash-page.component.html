@@ -1,4 +1,51 @@
-<section class="page-wrap">
-  <h2>Trash</h2>
-  <p>Deleted items will appear here until they are permanently removed.</p>
+<section class="trash-content">
+  <header class="trash-header">
+    <h2>Trash</h2>
+    <p>Items here are soft-deleted. Permanent delete cannot be undone.</p>
+  </header>
+
+  <section class="list-wrap">
+    <header class="list-header">
+      <span>Name</span>
+      <span>Type</span>
+      <span>Deleted at</span>
+      <span>Size</span>
+      <span>Action</span>
+    </header>
+
+    <p class="status-text" *ngIf="trashLoading">Loading trash items...</p>
+    <p class="status-text error" *ngIf="trashErrorMessage">{{ trashErrorMessage }}</p>
+    <p class="status-text" *ngIf="!trashLoading && !trashErrorMessage && entries.length === 0">
+      Trash is empty.
+    </p>
+
+    <article class="list-row" *ngFor="let entry of entries">
+      <span class="name-cell">
+        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <span>{{ entry.name }}</span>
+      </span>
+      <span class="type-cell">{{ entry.entryType }}</span>
+      <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
+      <span>{{ formatSize(entry.sizeBytes) }}</span>
+      <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
+        <img src="three-vertical-dots.png" alt="More" />
+      </button>
+    </article>
+  </section>
+</section>
+
+<section
+  class="entry-context-menu"
+  *ngIf="isEntryMenuOpen"
+  [style.left.px]="entryMenuX"
+  [style.top.px]="entryMenuY"
+  (click)="$event.stopPropagation()"
+  (contextmenu)="$event.preventDefault()"
+>
+  <button type="button" (click)="onRestoreEntry($event)">
+    Restore
+  </button>
+  <button type="button" class="danger" (click)="onPermanentDelete($event)">
+    Delete permanently
+  </button>
 </section>

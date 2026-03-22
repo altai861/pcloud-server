@@ -1,4 +1,253 @@
-<section class="page-wrap">
-  <h2>Admin</h2>
-  <p>Administrative controls and system settings will appear here.</p>
+<section class="admin-page">
+  <header class="admin-header">
+    <div>
+      <h2>Users</h2>
+      <p>Manage accounts available in your personal cloud system.</p>
+    </div>
+    <button type="button" (click)="openCreateUserForm()">Create user</button>
+  </header>
+
+  <section class="user-modal-backdrop" *ngIf="showCreateUserForm" (click)="!creating && closeCreateUserForm()">
+    <section class="user-form-card user-modal" (click)="$event.stopPropagation()">
+      <h3>Create user</h3>
+
+      <div class="user-form-grid">
+        <label>
+          <span>Username</span>
+          <input
+            type="text"
+            [(ngModel)]="createForm.username"
+            [disabled]="creating"
+            placeholder="john.doe"
+          />
+        </label>
+
+        <label>
+          <span>Email</span>
+          <input
+            type="email"
+            [(ngModel)]="createForm.email"
+            [disabled]="creating"
+            placeholder="john@example.com"
+          />
+        </label>
+
+        <label>
+          <span>Full name</span>
+          <input
+            type="text"
+            [(ngModel)]="createForm.fullName"
+            [disabled]="creating"
+            placeholder="John Doe"
+          />
+        </label>
+
+        <label>
+          <span>Password</span>
+          <input
+            type="password"
+            [(ngModel)]="createForm.password"
+            [disabled]="creating"
+            placeholder="At least 8 chars with mixed case and digit"
+          />
+        </label>
+
+        <label>
+          <span>Confirm password</span>
+          <input
+            type="password"
+            [(ngModel)]="createForm.passwordConfirmation"
+            [disabled]="creating"
+            placeholder="Repeat the password"
+          />
+        </label>
+
+        <label class="quota-field">
+          <span>Storage quota (friendly)</span>
+          <input
+            type="text"
+            [(ngModel)]="createForm.storageQuotaInput"
+            (ngModelChange)="onFriendlyQuotaChange()"
+            [disabled]="creating"
+            placeholder="500GB / 1.5TB / 800GiB"
+          />
+          <small>You can type units like KB, MB, GB, TB, KiB, MiB, GiB.</small>
+        </label>
+
+        <label class="quota-field">
+          <span>Storage quota (bytes)</span>
+          <input
+            type="text"
+            inputmode="numeric"
+            [(ngModel)]="createForm.storageQuotaBytes"
+            (ngModelChange)="onBytesQuotaChange()"
+            [disabled]="creating"
+            placeholder="500000000000"
+          />
+          <small>{{ quotaBytesPreviewText }}</small>
+        </label>
+      </div>
+
+      <ul class="status warnings" *ngIf="createWarnings.length > 0">
+        <li *ngFor="let warning of createWarnings">{{ warning }}</li>
+      </ul>
+
+      <p class="status error" *ngIf="createErrorMessage">{{ createErrorMessage }}</p>
+
+      <div class="form-actions">
+        <button type="button" class="secondary" [disabled]="creating" (click)="closeCreateUserForm()">
+          Cancel
+        </button>
+        <button type="button" [disabled]="creating" (click)="submitCreateUser()">
+          {{ creating ? 'Creating...' : 'Create user' }}
+        </button>
+      </div>
+    </section>
+  </section>
+
+  <section class="user-modal-backdrop" *ngIf="showUpdateUserForm" (click)="!updating && closeUpdateUserForm()">
+    <section class="user-form-card user-modal" (click)="$event.stopPropagation()">
+      <h3>Update user</h3>
+
+      <div class="user-form-grid">
+        <label>
+          <span>Username</span>
+          <input
+            type="text"
+            [(ngModel)]="updateForm.username"
+            [disabled]="updating"
+            placeholder="john.doe"
+          />
+        </label>
+
+        <label>
+          <span>Email</span>
+          <input
+            type="email"
+            [(ngModel)]="updateForm.email"
+            [disabled]="updating"
+            placeholder="john@example.com"
+          />
+        </label>
+
+        <label class="quota-field">
+          <span>Full name</span>
+          <input
+            type="text"
+            [(ngModel)]="updateForm.fullName"
+            [disabled]="updating"
+            placeholder="John Doe"
+          />
+        </label>
+
+        <label class="quota-field">
+          <span>Storage quota (friendly)</span>
+          <input
+            type="text"
+            [(ngModel)]="updateForm.storageQuotaInput"
+            (ngModelChange)="onUpdateFriendlyQuotaChange()"
+            [disabled]="updating"
+            placeholder="500GB / 1.5TB / 800GiB"
+          />
+          <small>You can type units like KB, MB, GB, TB, KiB, MiB, GiB.</small>
+        </label>
+
+        <label class="quota-field">
+          <span>Storage quota (bytes)</span>
+          <input
+            type="text"
+            inputmode="numeric"
+            [(ngModel)]="updateForm.storageQuotaBytes"
+            (ngModelChange)="onUpdateBytesQuotaChange()"
+            [disabled]="updating"
+            placeholder="500000000000"
+          />
+          <small>{{ updateQuotaBytesPreviewText }}</small>
+        </label>
+      </div>
+
+      <ul class="status warnings" *ngIf="updateWarnings.length > 0">
+        <li *ngFor="let warning of updateWarnings">{{ warning }}</li>
+      </ul>
+
+      <p class="status error" *ngIf="updateErrorMessage">{{ updateErrorMessage }}</p>
+
+      <div class="form-actions">
+        <button type="button" class="secondary" [disabled]="updating" (click)="closeUpdateUserForm()">
+          Cancel
+        </button>
+        <button type="button" [disabled]="updating" (click)="submitUpdateUser()">
+          {{ updating ? 'Saving...' : 'Save changes' }}
+        </button>
+      </div>
+    </section>
+  </section>
+
+  <p class="status" *ngIf="loading">Loading users...</p>
+  <p class="status error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
+  <p class="status error" *ngIf="!loading && !errorMessage && actionErrorMessage">{{ actionErrorMessage }}</p>
+  <p class="status success" *ngIf="!loading && actionSuccessMessage">{{ actionSuccessMessage }}</p>
+
+  <section class="users-table-wrap" *ngIf="!loading && !errorMessage">
+    <header class="users-table-head">
+      <span>User</span>
+      <span>Role</span>
+      <span>Status</span>
+      <span>Used / Quota</span>
+      <span>Created</span>
+      <span>Actions</span>
+    </header>
+
+    <div class="users-table-row" *ngFor="let user of users">
+      <div class="user-cell">
+        <strong>{{ user.fullName }}</strong>
+        <small>{{ user.username }} · {{ user.email }}</small>
+      </div>
+      <span>{{ user.role }}</span>
+      <span>{{ user.status }}</span>
+      <span>{{ formatSize(user.storageUsedBytes) }} / {{ formatSize(user.storageQuotaBytes) }}</span>
+      <span>{{ formatDate(user.createdAtUnixMs) }}</span>
+      <div class="row-actions" (click)="$event.stopPropagation()">
+        <button
+          type="button"
+          class="row-more-btn"
+          title="More actions"
+          aria-label="More actions"
+          [class.active]="openUserActionsMenuId === user.id"
+          (click)="toggleUserActionsMenu($event, user.id)"
+        >
+          <img src="three-vertical-dots.png" alt="" />
+        </button>
+      </div>
+    </div>
+
+    <p class="status" *ngIf="users.length === 0">No users found.</p>
+  </section>
+
+  <section
+    class="row-actions-popup"
+    *ngIf="openedUserForActionsMenu as menuUser"
+    [style.left.px]="userActionsMenuX"
+    [style.top.px]="userActionsMenuY"
+    (click)="$event.stopPropagation()"
+  >
+    <button type="button" class="row-action-btn" (click)="onUpdateFromMenu($event, menuUser)">
+      Update
+    </button>
+    <button
+      type="button"
+      class="row-action-btn danger"
+      [disabled]="deletingUserId === menuUser.id || isDeleteDisabled(menuUser)"
+      [title]="isDeleteDisabled(menuUser) ? 'Admin users cannot be deleted' : 'Delete user'"
+      (click)="onDeleteFromMenu($event, menuUser)"
+    >
+      {{
+        deletingUserId === menuUser.id
+          ? 'Deleting...'
+          : isDeleteDisabled(menuUser)
+            ? 'Delete (disabled)'
+            : 'Delete'
+      }}
+    </button>
+  </section>
 </section>

@@ -1,13 +1,15 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, ViewRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, finalize, Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { StorageEntryDto } from '../../dto/storage-entry.dto';
+import { StorageFolderMetadataDto } from '../../dto/storage-folder-metadata.dto';
 import { StorageListResponseDto } from '../../dto/storage-list-response.dto';
 import { ClientSessionService } from '../../services/client-session.service';
+import { ProfileImageService } from '../../services/profile-image.service';
 import { RecentEntriesService } from '../../services/recent-entries.service';
 import { StorageApiService } from '../../services/storage-api.service';
 import { StorageSidebarAction, StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
@@ -29,6 +31,9 @@ interface BreadcrumbItem {
 export class StorageHomeComponent implements OnInit, OnDestroy {
   private actionSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
+  private listLoadSub: Subscription | null = null;
+  private profileImageSub: Subscription | null = null;
+  private listRequestId = 0;
   private searchTerm = '';
 
   currentPath = '/';
@@ -41,10 +46,20 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   isUploadInProgress = false;
   uploadProgressPercent: number | null = null;
   uploadFileName = '';
+  isFolderMetadataOpen = false;
+  isFolderMetadataLoading = false;
+  folderMetadataErrorMessage = '';
+  folderMetadata: StorageFolderMetadataDto | null = null;
+  isEntryMenuOpen = false;
+  entryMenuX = 0;
+  entryMenuY = 0;
+  entryMenuTarget: StorageEntryDto | null = null;
+  ownerProfileImageSrc: string | null = null;
 
   constructor(
     private readonly storageApiService: StorageApiService,
     private readonly sessionService: ClientSessionService,
+    private readonly profileImageService: ProfileImageService,
     private readonly recentEntriesService: RecentEntriesService,
     private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly searchService: WorkspaceSearchService,
@@ -53,6 +68,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
+    this.profileImageSub = this.profileImageService.profileImageSrc$.subscribe((src) => {
+      this.ownerProfileImageSrc = src;
+      this.triggerUiRefresh();
+    });
+
     this.searchSub = this.searchService.searchTerm$
       .pipe(debounceTime(260), distinctUntilChanged())
       .subscribe((term) => {
@@ -74,6 +94,11 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.searchSub = null;
     this.actionSub?.unsubscribe();
     this.actionSub = null;
+    this.listLoadSub?.unsubscribe();
+    this.listLoadSub = null;
+    this.profileImageSub?.unsubscribe();
+    this.profileImageSub = null;
+    this.listRequestId += 1;
   }
 
   get breadcrumbs(): BreadcrumbItem[] {
@@ -113,6 +138,136 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   setViewMode(mode: ViewMode): void {
     this.viewMode = mode;
+  }
+
+  openEntryMenuFromButton(event: MouseEvent, entry: StorageEntryDto): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openEntryMenuAt(event.clientX, event.clientY, entry);
+  }
+
+  openEntryContextMenu(event: MouseEvent, entry: StorageEntryDto): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openEntryMenuAt(event.clientX, event.clientY, entry);
+  }
+
+  closeEntryMenu(): void {
+    this.isEntryMenuOpen = false;
+    this.entryMenuTarget = null;
+  }
+
+  onDownloadEntryClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const selectedEntry = this.entryMenuTarget;
+    if (!selectedEntry || selectedEntry.entryType !== 'file') {
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.downloadEntry(selectedEntry);
+  }
+
+  onDeleteEntryClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const selectedEntry = this.entryMenuTarget;
+    if (!selectedEntry) {
+      return;
+    }
+
+    const isFolder = selectedEntry.entryType === 'folder';
+    const confirmMessage = isFolder
+      ? `Move folder "${selectedEntry.name}" and all its contents to Trash?`
+      : `Move file "${selectedEntry.name}" to Trash?`;
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.storageLoading = true;
+    this.storageErrorMessage = '';
+
+    const request = isFolder
+      ? this.storageApiService.deleteFolder('', accessToken, selectedEntry.path)
+      : this.storageApiService.deleteFile('', accessToken, selectedEntry.path);
+
+    request
+      .pipe(finalize(() => {
+        this.storageLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.storageSidebarActions.notifyUsageChanged();
+          this.loadStorage(this.currentPath);
+        },
+        error: (error: unknown) => {
+          this.storageErrorMessage = this.extractError(error, `Failed to move ${selectedEntry.entryType} to trash`);
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  get isEntryDownloadDisabled(): boolean {
+    return !this.entryMenuTarget || this.entryMenuTarget.entryType !== 'file';
+  }
+
+  openFolderMetadata(): void {
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.isFolderMetadataOpen = true;
+    this.isFolderMetadataLoading = true;
+    this.folderMetadataErrorMessage = '';
+    this.folderMetadata = null;
+
+    this.storageApiService
+      .folderMetadata('', accessToken, this.currentPath)
+      .pipe(finalize(() => {
+        this.isFolderMetadataLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (payload: StorageFolderMetadataDto) => {
+          this.folderMetadata = payload;
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.folderMetadataErrorMessage = this.extractError(error, 'Failed to load folder metadata');
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  closeFolderMetadata(): void {
+    this.isFolderMetadataOpen = false;
+    this.folderMetadataErrorMessage = '';
+    this.folderMetadata = null;
+    this.isFolderMetadataLoading = false;
   }
 
   formatSize(bytes: number | null): string {
@@ -156,6 +311,45 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }).format(date);
   }
 
+  formatDateTime(unixMillis: number | null): string {
+    if (unixMillis === null || !Number.isFinite(unixMillis)) {
+      return '-';
+    }
+
+    const date = new Date(unixMillis);
+    if (Number.isNaN(date.getTime())) {
+      return '-';
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  }
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    if (!this.isEntryMenuOpen) {
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.cdr.detectChanges();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapePressed(): void {
+    if (!this.isEntryMenuOpen) {
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.cdr.detectChanges();
+  }
+
   private loadStorage(path: string): void {
     const accessToken = this.sessionService.readAccessToken();
 
@@ -164,30 +358,46 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.listLoadSub?.unsubscribe();
+    const requestId = ++this.listRequestId;
+
     this.storageLoading = true;
     this.storageErrorMessage = '';
 
-    this.storageApiService
+    this.listLoadSub = this.storageApiService
       .list('', accessToken, path, this.searchTerm)
       .pipe(finalize(() => {
+        if (requestId !== this.listRequestId) {
+          return;
+        }
+
+        this.listLoadSub = null;
         this.storageLoading = false;
-        this.cdr.detectChanges();
+        this.triggerUiRefresh();
       }))
       .subscribe({
         next: (body: StorageListResponseDto) => {
+          if (requestId !== this.listRequestId) {
+            return;
+          }
+
           this.currentPath = body.currentPath;
           this.parentPath = body.parentPath;
           this.entries = body.entries;
-          this.cdr.detectChanges();
+          this.triggerUiRefresh();
         },
         error: (error: unknown) => {
+          if (requestId !== this.listRequestId) {
+            return;
+          }
+
           this.storageErrorMessage = this.extractError(error, 'Failed to load storage list');
 
           if (error instanceof HttpErrorResponse && error.status === 401) {
             this.redirectToLogin();
           }
 
-          this.cdr.detectChanges();
+          this.triggerUiRefresh();
         }
       });
   }
@@ -284,6 +494,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
           if (event.type === HttpEventType.Response) {
             this.uploadProgressPercent = 100;
+            this.storageSidebarActions.notifyUsageChanged();
             this.loadStorage(this.currentPath);
           }
         },
@@ -297,6 +508,55 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
           this.cdr.detectChanges();
         }
       });
+  }
+
+  private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto): void {
+    const menuWidth = 176;
+    const menuHeight = 98;
+    const viewportPadding = 8;
+
+    const left = Math.max(
+      viewportPadding,
+      Math.min(clientX, window.innerWidth - menuWidth - viewportPadding)
+    );
+    const top = Math.max(
+      viewportPadding,
+      Math.min(clientY, window.innerHeight - menuHeight - viewportPadding)
+    );
+
+    this.entryMenuX = left;
+    this.entryMenuY = top;
+    this.entryMenuTarget = entry;
+    this.isEntryMenuOpen = true;
+    this.cdr.detectChanges();
+  }
+
+  private downloadEntry(entry: StorageEntryDto): void {
+    if (entry.entryType !== 'file') {
+      this.storageErrorMessage = 'Folder download is not available yet';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    const downloadUrl = this.storageApiService.buildFileDownloadUrl(
+      '',
+      accessToken,
+      entry.path
+    );
+
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   private redirectToLogin(): void {
@@ -336,5 +596,14 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }
 
     return fallback;
+  }
+
+  private triggerUiRefresh(): void {
+    const view = this.cdr as ViewRef;
+    if (view.destroyed) {
+      return;
+    }
+
+    this.cdr.detectChanges();
   }
 }

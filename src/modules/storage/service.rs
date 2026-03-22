@@ -5,6 +5,7 @@ use crate::{
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use std::{
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -54,9 +55,46 @@ struct StorageEntryRow {
 }
 
 #[derive(Debug, FromRow)]
+struct FolderMetadataRow {
+    name: String,
+    path: String,
+    created_at_unix_ms: i64,
+    modified_at_unix_ms: i64,
+    folder_count: i64,
+    file_count: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct DownloadFileRow {
+    storage_path: String,
+    mime_type: Option<String>,
+    original_file_name: Option<String>,
+    name: String,
+}
+
+#[derive(Debug, FromRow)]
 struct UserStorageRow {
     storage_quota_bytes: i64,
     storage_used_bytes: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct DeleteFileRow {
+    id: i64,
+    size_bytes: i64,
+    storage_path: String,
+    logical_path: String,
+}
+
+#[derive(Debug, FromRow)]
+struct DeleteFolderRow {
+    path: String,
+}
+
+#[derive(Debug, FromRow)]
+struct TrashedFolderRestoreRow {
+    path: String,
+    parent_is_deleted: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -68,6 +106,37 @@ pub struct StorageListResult {
     pub total_storage_used_bytes: i64,
     pub user_storage_quota_bytes: i64,
     pub user_storage_used_bytes: i64,
+}
+
+#[derive(Debug)]
+pub struct StorageFolderMetadataResult {
+    pub name: String,
+    pub path: String,
+    pub created_at_unix_ms: i64,
+    pub modified_at_unix_ms: i64,
+    pub folder_count: i64,
+    pub file_count: i64,
+    pub total_item_count: i64,
+}
+
+#[derive(Debug)]
+pub struct DownloadFileResult {
+    pub absolute_path: PathBuf,
+    pub mime_type: Option<String>,
+    pub download_name: String,
+}
+
+#[derive(Debug)]
+pub struct DeletedStorageResult {
+    pub deleted_path: String,
+    pub entry_type: String,
+    pub reclaimed_bytes: i64,
+}
+
+#[derive(Debug)]
+pub struct RestoredStorageResult {
+    pub restored_path: String,
+    pub entry_type: String,
 }
 
 pub async fn list_user_storage(
@@ -117,6 +186,165 @@ pub async fn list_user_storage(
         total_storage_used_bytes,
         user_storage_quota_bytes: current_user.user.storage_quota_bytes,
         user_storage_used_bytes: current_user.user.storage_used_bytes,
+    })
+}
+
+pub async fn list_user_trash(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    query: StorageListQuery,
+) -> Result<StorageListResult, ApiError> {
+    let settings = load_system_storage_settings(pool).await?;
+    let total_storage_used_bytes = load_total_storage_usage(pool).await?;
+
+    let search = query
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let entries = load_trashed_storage_entries(pool, current_user.user.id, search)
+        .await?
+        .into_iter()
+        .map(storage_entry_row_to_dto)
+        .collect();
+
+    Ok(StorageListResult {
+        current_path: "/trash".to_owned(),
+        parent_path: None,
+        entries,
+        total_storage_limit_bytes: settings.total_storage_limit_bytes,
+        total_storage_used_bytes,
+        user_storage_quota_bytes: current_user.user.storage_quota_bytes,
+        user_storage_used_bytes: current_user.user.storage_used_bytes,
+    })
+}
+
+pub async fn get_folder_metadata(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<StorageFolderMetadataResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    let current_folder = load_requested_folder(pool, current_user.user.id, &requested_path).await?;
+
+    let metadata = sqlx::query_as::<_, FolderMetadataRow>(
+        r#"
+        SELECT
+            folder.name,
+            folder.path,
+            (EXTRACT(EPOCH FROM folder.created_at) * 1000)::BIGINT AS created_at_unix_ms,
+            (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
+            (
+                SELECT COUNT(*)::BIGINT
+                FROM folders child
+                WHERE child.owner_user_id = $1
+                  AND child.parent_folder_id = folder.id
+                  AND child.is_deleted = false
+            ) AS folder_count,
+            (
+                SELECT COUNT(*)::BIGINT
+                FROM files file_row
+                WHERE file_row.owner_user_id = $1
+                  AND file_row.folder_id = folder.id
+                  AND file_row.is_deleted = false
+            ) AS file_count
+        FROM folders folder
+        WHERE folder.owner_user_id = $1
+          AND folder.id = $2
+          AND folder.is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(current_folder.id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load folder metadata"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested storage path does not exist".to_owned()))?;
+
+    let folder_name = if metadata.path == "/" {
+        "/".to_owned()
+    } else {
+        metadata.name
+    };
+
+    Ok(StorageFolderMetadataResult {
+        name: folder_name,
+        path: normalize_db_path(&metadata.path),
+        created_at_unix_ms: metadata.created_at_unix_ms,
+        modified_at_unix_ms: metadata.modified_at_unix_ms,
+        folder_count: metadata.folder_count,
+        file_count: metadata.file_count,
+        total_item_count: metadata.folder_count + metadata.file_count,
+    })
+}
+
+pub async fn resolve_file_download(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<DownloadFileResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Requested path must point to a file".to_owned(),
+        ));
+    }
+
+    let settings = load_system_storage_settings(pool).await?;
+
+    let file_row = sqlx::query_as::<_, DownloadFileRow>(
+        r#"
+        SELECT
+            file_row.storage_path,
+            file_row.mime_type,
+            file_row.original_file_name,
+            file_row.name
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+          AND (
+              CASE
+                  WHEN folder.path = '/' THEN '/' || file_row.name
+                  ELSE folder.path || '/' || file_row.name
+              END
+          ) = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&requested_path)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve file download path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?;
+
+    let absolute_path = PathBuf::from(&settings.storage_root_path)
+        .join(file_row.storage_path.trim_start_matches('/'));
+
+    if !absolute_path.is_file() {
+        return Err(ApiError::BadRequest(
+            "Requested file is not available on disk".to_owned(),
+        ));
+    }
+
+    let download_name = file_row
+        .original_file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or(file_row.name);
+
+    Ok(DownloadFileResult {
+        absolute_path,
+        mime_type: file_row.mime_type,
+        download_name,
     })
 }
 
@@ -382,6 +610,427 @@ pub async fn upload_file(
     Ok(storage_entry_row_to_dto(inserted))
 }
 
+pub async fn delete_file(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<DeletedStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Requested path must point to a file".to_owned(),
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start file deletion transaction")
+    })?;
+
+    let target_file =
+        load_file_for_deletion_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    let deleted = sqlx::query(
+        r#"
+        UPDATE files
+        SET is_deleted = true,
+            deleted_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+          AND owner_user_id = $2
+          AND is_deleted = false
+        "#,
+    )
+    .bind(target_file.id)
+    .bind(current_user.user.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested file does not exist".to_owned(),
+        ));
+    }
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit file deletion transaction")
+    })?;
+
+    Ok(DeletedStorageResult {
+        deleted_path: normalize_db_path(&target_file.logical_path),
+        entry_type: "file".to_owned(),
+        reclaimed_bytes: 0,
+    })
+}
+
+pub async fn delete_folder(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<DeletedStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Root folder cannot be deleted".to_owned(),
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start folder deletion transaction")
+    })?;
+
+    let target_folder =
+        load_folder_for_deletion_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    let folder_prefix = format!("{}/%", target_folder.path.trim_end_matches('/'));
+    let deleted_folders = sqlx::query(
+        r#"
+        UPDATE folders
+        SET is_deleted = true,
+            deleted_at = NOW(),
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND is_deleted = false
+          AND (
+              path = $2
+              OR path LIKE $3
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&folder_prefix)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    if deleted_folders.rows_affected() == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested folder does not exist".to_owned(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE files
+        SET is_deleted = true,
+            deleted_at = NOW(),
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND is_deleted = false
+          AND folder_id IN (
+              SELECT id
+              FROM folders
+              WHERE owner_user_id = $1
+                AND (
+                    path = $2
+                    OR path LIKE $3
+                )
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&folder_prefix)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit folder deletion transaction")
+    })?;
+
+    Ok(DeletedStorageResult {
+        deleted_path: normalize_db_path(&target_folder.path),
+        entry_type: "folder".to_owned(),
+        reclaimed_bytes: 0,
+    })
+}
+
+pub async fn permanently_delete_file(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<DeletedStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Requested path must point to a file".to_owned(),
+        ));
+    }
+
+    let settings = load_system_storage_settings(pool).await?;
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start permanent file deletion transaction")
+    })?;
+
+    let target_file =
+        load_trashed_file_for_deletion_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    let deleted = sqlx::query(
+        r#"
+        DELETE FROM files
+        WHERE id = $1
+          AND owner_user_id = $2
+          AND is_deleted = true
+        "#,
+    )
+    .bind(target_file.id)
+    .bind(current_user.user.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested file does not exist in trash".to_owned(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET storage_used_bytes = GREATEST(0, storage_used_bytes - $2),
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(target_file.size_bytes)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit permanent file deletion transaction")
+    })?;
+
+    let absolute_file_path = PathBuf::from(&settings.storage_root_path)
+        .join(target_file.storage_path.trim_start_matches('/'));
+    remove_file_if_exists(&absolute_file_path)?;
+
+    Ok(DeletedStorageResult {
+        deleted_path: normalize_db_path(&target_file.logical_path),
+        entry_type: "file".to_owned(),
+        reclaimed_bytes: target_file.size_bytes,
+    })
+}
+
+pub async fn permanently_delete_folder(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<DeletedStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Root folder cannot be deleted".to_owned(),
+        ));
+    }
+
+    let settings = load_system_storage_settings(pool).await?;
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start permanent folder deletion transaction")
+    })?;
+
+    let target_folder =
+        load_trashed_folder_for_deletion_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    let reclaimed_bytes =
+        load_folder_subtree_file_size_tx(&mut tx, current_user.user.id, &target_folder.path, true)
+            .await?;
+
+    let folder_prefix = format!("{}/%", target_folder.path.trim_end_matches('/'));
+    let deleted = sqlx::query(
+        r#"
+        DELETE FROM folders
+        WHERE owner_user_id = $1
+          AND (
+              path = $2
+              OR path LIKE $3
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&folder_prefix)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested folder does not exist in trash".to_owned(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET storage_used_bytes = GREATEST(0, storage_used_bytes - $2),
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(reclaimed_bytes)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit permanent folder deletion transaction")
+    })?;
+
+    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let folder_absolute_path = user_root.join(logical_path_to_relative_path(&target_folder.path));
+    remove_dir_if_exists(&folder_absolute_path)?;
+
+    Ok(DeletedStorageResult {
+        deleted_path: normalize_db_path(&target_folder.path),
+        entry_type: "folder".to_owned(),
+        reclaimed_bytes,
+    })
+}
+
+pub async fn restore_file(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<RestoredStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Requested path must point to a file".to_owned(),
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to start file restore transaction"))?;
+
+    let target_file =
+        load_trashed_file_for_deletion_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    let restored = sqlx::query(
+        r#"
+        UPDATE files
+        SET is_deleted = false,
+            deleted_at = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+          AND owner_user_id = $2
+          AND is_deleted = true
+        "#,
+    )
+    .bind(target_file.id)
+    .bind(current_user.user.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    if restored.rows_affected() == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested file does not exist in trash".to_owned(),
+        ));
+    }
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit file restore transaction")
+    })?;
+
+    Ok(RestoredStorageResult {
+        restored_path: normalize_db_path(&target_file.logical_path),
+        entry_type: "file".to_owned(),
+    })
+}
+
+pub async fn restore_folder(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    path: Option<String>,
+) -> Result<RestoredStorageResult, ApiError> {
+    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+    if requested_path == "/" {
+        return Err(ApiError::BadRequest(
+            "Root folder cannot be restored".to_owned(),
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to start folder restore transaction")
+    })?;
+
+    let target_folder =
+        load_trashed_folder_for_restore_tx(&mut tx, current_user.user.id, &requested_path).await?;
+
+    if target_folder.parent_is_deleted == Some(true) {
+        return Err(ApiError::BadRequest(
+            "Parent folder is in trash. Restore the parent folder first.".to_owned(),
+        ));
+    }
+
+    let folder_prefix = format!("{}/%", target_folder.path.trim_end_matches('/'));
+    sqlx::query(
+        r#"
+        UPDATE folders
+        SET is_deleted = false,
+            deleted_at = NULL,
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND is_deleted = true
+          AND (
+              path = $2
+              OR path LIKE $3
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&folder_prefix)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    sqlx::query(
+        r#"
+        UPDATE files
+        SET is_deleted = false,
+            deleted_at = NULL,
+            updated_at = NOW()
+        WHERE owner_user_id = $1
+          AND is_deleted = true
+          AND folder_id IN (
+              SELECT id
+              FROM folders
+              WHERE owner_user_id = $1
+                AND (
+                    path = $2
+                    OR path LIKE $3
+                )
+          )
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(&target_folder.path)
+    .bind(&folder_prefix)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_storage_write_error)?;
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit folder restore transaction")
+    })?;
+
+    Ok(RestoredStorageResult {
+        restored_path: normalize_db_path(&target_folder.path),
+        entry_type: "folder".to_owned(),
+    })
+}
+
 async fn load_system_storage_settings(pool: &PgPool) -> Result<SystemStorageRow, ApiError> {
     sqlx::query_as::<_, SystemStorageRow>(
         r#"
@@ -547,6 +1196,188 @@ async fn load_requested_folder_tx(
     .ok_or_else(|| ApiError::BadRequest("Requested storage path does not exist".to_owned()))
 }
 
+async fn load_file_for_deletion_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<DeleteFileRow, ApiError> {
+    sqlx::query_as::<_, DeleteFileRow>(
+        r#"
+        SELECT
+            file_row.id,
+            file_row.size_bytes,
+            file_row.storage_path,
+            CASE
+                WHEN folder.path = '/' THEN '/' || file_row.name
+                ELSE folder.path || '/' || file_row.name
+            END AS logical_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+          AND (
+              CASE
+                  WHEN folder.path = '/' THEN '/' || file_row.name
+                  ELSE folder.path || '/' || file_row.name
+              END
+          ) = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve file deletion path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))
+}
+
+async fn load_trashed_file_for_deletion_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<DeleteFileRow, ApiError> {
+    sqlx::query_as::<_, DeleteFileRow>(
+        r#"
+        SELECT
+            file_row.id,
+            file_row.size_bytes,
+            file_row.storage_path,
+            CASE
+                WHEN folder.path = '/' THEN '/' || file_row.name
+                ELSE folder.path || '/' || file_row.name
+            END AS logical_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = true
+          AND (
+              CASE
+                  WHEN folder.path = '/' THEN '/' || file_row.name
+                  ELSE folder.path || '/' || file_row.name
+              END
+          ) = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve trashed file path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist in trash".to_owned()))
+}
+
+async fn load_folder_for_deletion_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<DeleteFolderRow, ApiError> {
+    sqlx::query_as::<_, DeleteFolderRow>(
+        r#"
+        SELECT path
+        FROM folders
+        WHERE owner_user_id = $1
+          AND path = $2
+          AND is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve folder deletion path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned()))
+}
+
+async fn load_trashed_folder_for_deletion_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<DeleteFolderRow, ApiError> {
+    sqlx::query_as::<_, DeleteFolderRow>(
+        r#"
+        SELECT path
+        FROM folders
+        WHERE owner_user_id = $1
+          AND path = $2
+          AND is_deleted = true
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve trashed folder path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist in trash".to_owned()))
+}
+
+async fn load_trashed_folder_for_restore_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    requested_path: &str,
+) -> Result<TrashedFolderRestoreRow, ApiError> {
+    sqlx::query_as::<_, TrashedFolderRestoreRow>(
+        r#"
+        SELECT
+            folder.path,
+            parent.is_deleted AS parent_is_deleted
+        FROM folders folder
+        LEFT JOIN folders parent
+            ON parent.id = folder.parent_folder_id
+        WHERE folder.owner_user_id = $1
+          AND folder.path = $2
+          AND folder.is_deleted = true
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .bind(requested_path)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve trashed folder path"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist in trash".to_owned()))
+}
+
+async fn load_folder_subtree_file_size_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    folder_path: &str,
+    is_deleted: bool,
+) -> Result<i64, ApiError> {
+    let prefix = format!("{}/%", folder_path.trim_end_matches('/'));
+
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COALESCE(SUM(file_row.size_bytes), 0)::BIGINT
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.owner_user_id = $1
+          AND folder.owner_user_id = $1
+          AND file_row.is_deleted = $4
+          AND (
+              folder.path = $2
+              OR folder.path LIKE $3
+          )
+        "#,
+    )
+    .bind(user_id)
+    .bind(folder_path)
+    .bind(prefix)
+    .bind(is_deleted)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to calculate folder reclaim size"))
+}
+
 async fn ensure_name_not_taken_tx(
     tx: &mut Transaction<'_, Postgres>,
     owner_user_id: i64,
@@ -647,6 +1478,67 @@ async fn load_storage_entries(
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to load storage listing"))
+}
+
+async fn load_trashed_storage_entries(
+    pool: &PgPool,
+    user_id: i64,
+    search: Option<&str>,
+) -> Result<Vec<StorageEntryRow>, ApiError> {
+    sqlx::query_as::<_, StorageEntryRow>(
+        r#"
+        SELECT
+            entries.name,
+            entries.path,
+            entries.entry_type,
+            entries.size_bytes,
+            entries.modified_at_unix_ms
+        FROM (
+            SELECT
+                folder.name,
+                folder.path,
+                'folder'::TEXT AS entry_type,
+                NULL::BIGINT AS size_bytes,
+                (EXTRACT(EPOCH FROM COALESCE(folder.deleted_at, folder.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
+            FROM folders folder
+            LEFT JOIN folders parent
+                ON parent.id = folder.parent_folder_id
+            WHERE folder.owner_user_id = $1
+              AND folder.is_deleted = true
+              AND (
+                  parent.id IS NULL
+                  OR parent.is_deleted = false
+              )
+              AND ($2::TEXT IS NULL OR folder.name ILIKE '%' || $2 || '%')
+
+            UNION ALL
+
+            SELECT
+                file_row.name,
+                CASE
+                    WHEN folder.path = '/' THEN '/' || file_row.name
+                    ELSE folder.path || '/' || file_row.name
+                END AS path,
+                'file'::TEXT AS entry_type,
+                file_row.size_bytes,
+                (EXTRACT(EPOCH FROM COALESCE(file_row.deleted_at, file_row.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            WHERE file_row.owner_user_id = $1
+              AND folder.owner_user_id = $1
+              AND file_row.is_deleted = true
+              AND folder.is_deleted = false
+              AND ($2::TEXT IS NULL OR file_row.name ILIKE '%' || $2 || '%')
+        ) entries
+        ORDER BY entries.modified_at_unix_ms DESC, LOWER(entries.name), entries.name
+        "#,
+    )
+    .bind(user_id)
+    .bind(search)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load trash listing"))
 }
 
 fn storage_entry_row_to_dto(row: StorageEntryRow) -> StorageEntryDto {
@@ -824,6 +1716,26 @@ fn move_temp_file(source: &Path, target: &Path) -> Result<(), ApiError> {
             })?;
             Ok(())
         }
+    }
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<(), ApiError> {
+    match fs::remove_file(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(ApiError::internal_with_context(
+            "Failed to delete file from storage filesystem",
+        )),
+    }
+}
+
+fn remove_dir_if_exists(path: &Path) -> Result<(), ApiError> {
+    match fs::remove_dir_all(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(ApiError::internal_with_context(
+            "Failed to delete folder from storage filesystem",
+        )),
     }
 }
 

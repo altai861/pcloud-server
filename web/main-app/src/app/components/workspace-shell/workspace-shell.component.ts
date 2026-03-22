@@ -22,6 +22,7 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
   @ViewChild('uploadFileInput') uploadFileInput: ElementRef<HTMLInputElement> | null = null;
 
   private profileImageSub: Subscription | null = null;
+  private usageChangedSub: Subscription | null = null;
 
   currentUser: AuthUserDto | null = null;
   profileImageSrc: string | null = null;
@@ -46,12 +47,17 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
       this.profileImageSrc = src;
       this.cdr.detectChanges();
     });
+    this.usageChangedSub = this.storageSidebarActions.usageChanged$.subscribe(() => {
+      this.loadCurrentUser();
+    });
     this.loadCurrentUser();
   }
 
   ngOnDestroy(): void {
     this.profileImageSub?.unsubscribe();
     this.profileImageSub = null;
+    this.usageChangedSub?.unsubscribe();
+    this.usageChangedSub = null;
   }
 
   onSearchChange(value: string): void {

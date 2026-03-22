@@ -138,8 +138,27 @@ pub async fn authenticate_headers(
     headers: &HeaderMap,
 ) -> Result<AuthenticatedUser, ApiError> {
     let token = extract_bearer_token(headers)?;
-    let token_hash = hash_token(token);
+    authenticate_access_token(pool, token).await
+}
 
+pub async fn authenticate_access_token(
+    pool: &PgPool,
+    access_token: &str,
+) -> Result<AuthenticatedUser, ApiError> {
+    let token = access_token.trim();
+    if token.is_empty() {
+        return Err(ApiError::Unauthorized(
+            "Invalid or expired session".to_owned(),
+        ));
+    }
+    let token_hash = hash_token(token);
+    load_authenticated_user_by_token_hash(pool, &token_hash).await
+}
+
+async fn load_authenticated_user_by_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<AuthenticatedUser, ApiError> {
     let row = sqlx::query_as::<_, SessionUserRow>(
         r#"
         SELECT

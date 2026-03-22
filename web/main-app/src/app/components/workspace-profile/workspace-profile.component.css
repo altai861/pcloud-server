@@ -123,9 +123,49 @@ button:hover {
 .upload-section input[type='file'] {
   border: 1px dashed var(--line-strong);
   border-radius: 9px;
-  padding: 0.55rem;
+  padding: 0.52rem 0.56rem;
   background: var(--surface-soft);
   color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  transition: border-color 130ms ease, box-shadow 130ms ease, background-color 130ms ease;
+}
+
+.upload-section input[type='file']::file-selector-button {
+  border: 1px solid color-mix(in srgb, var(--focus) 38%, var(--line-strong));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--focus) 10%, var(--input));
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 0 0.7rem;
+  margin-right: 0.66rem;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.upload-section input[type='file']::file-selector-button:hover {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 16%, var(--input));
+  transform: translateY(-1px);
+}
+
+.upload-section input[type='file']:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);
+}
+
+.upload-section input[type='file']:disabled {
+  opacity: 0.72;
+}
+
+.upload-section input[type='file']:disabled::file-selector-button {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
 }
 
 :host-context([data-theme='dark']) .profile-card header img.default-avatar {

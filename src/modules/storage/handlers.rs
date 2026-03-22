@@ -4,17 +4,26 @@ use crate::{
     modules::{
         auth::service,
         storage::{
-            dto::{StorageListResponse, StorageMutationResponse},
+            dto::{
+                StorageDeleteResponse, StorageFolderMetadataResponse, StorageListResponse,
+                StorageMutationResponse, StorageRestoreResponse,
+            },
             service::{
-                self as storage_service, CreateFolderInput, StorageListQuery, UploadFileInput,
+                self as storage_service, CreateFolderInput, StorageFolderMetadataResult,
+                StorageListQuery, UploadFileInput,
             },
         },
     },
 };
 use axum::{
     Json,
+    body::Body,
     extract::{Multipart, Query, State},
-    http::HeaderMap,
+    http::{
+        HeaderMap, StatusCode,
+        header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+    },
+    response::Response,
 };
 use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
@@ -25,6 +34,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{fs::File, io::AsyncWriteExt};
+use tokio_util::io::ReaderStream;
 
 const MAX_UPLOAD_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
@@ -40,6 +50,25 @@ pub struct ListStorageRequest {
 pub struct CreateFolderRequest {
     pub parent_path: Option<String>,
     pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderMetadataRequest {
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadFileRequest {
+    pub path: Option<String>,
+    pub access_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteStorageRequest {
+    pub path: Option<String>,
 }
 
 pub async fn list(
@@ -70,6 +99,47 @@ pub async fn list(
     }))
 }
 
+pub async fn list_trash(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListStorageRequest>,
+) -> ApiResult<Json<StorageListResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::list_user_trash(
+        &state.pool,
+        &current_user,
+        StorageListQuery {
+            path: None,
+            search: query.q,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageListResponse {
+        current_path: result.current_path,
+        parent_path: result.parent_path,
+        entries: result.entries,
+        total_storage_limit_bytes: result.total_storage_limit_bytes,
+        total_storage_used_bytes: result.total_storage_used_bytes,
+        user_storage_quota_bytes: result.user_storage_quota_bytes,
+        user_storage_used_bytes: result.user_storage_used_bytes,
+    }))
+}
+
+pub async fn folder_metadata(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FolderMetadataRequest>,
+) -> ApiResult<Json<StorageFolderMetadataResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result =
+        storage_service::get_folder_metadata(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(map_folder_metadata_response(result)))
+}
+
 pub async fn create_folder(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -91,6 +161,164 @@ pub async fn create_folder(
         message: "Folder created successfully".to_owned(),
         entry,
     }))
+}
+
+pub async fn delete_folder(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageDeleteResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::delete_folder(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageDeleteResponse {
+        message: "Folder moved to trash".to_owned(),
+        deleted_path: result.deleted_path,
+        entry_type: result.entry_type,
+        reclaimed_bytes: result.reclaimed_bytes,
+    }))
+}
+
+pub async fn delete_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageDeleteResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::delete_file(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageDeleteResponse {
+        message: "File moved to trash".to_owned(),
+        deleted_path: result.deleted_path,
+        entry_type: result.entry_type,
+        reclaimed_bytes: result.reclaimed_bytes,
+    }))
+}
+
+pub async fn permanently_delete_folder(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageDeleteResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result =
+        storage_service::permanently_delete_folder(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageDeleteResponse {
+        message: "Folder permanently deleted".to_owned(),
+        deleted_path: result.deleted_path,
+        entry_type: result.entry_type,
+        reclaimed_bytes: result.reclaimed_bytes,
+    }))
+}
+
+pub async fn permanently_delete_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageDeleteResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result =
+        storage_service::permanently_delete_file(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageDeleteResponse {
+        message: "File permanently deleted".to_owned(),
+        deleted_path: result.deleted_path,
+        entry_type: result.entry_type,
+        reclaimed_bytes: result.reclaimed_bytes,
+    }))
+}
+
+pub async fn restore_folder(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageRestoreResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::restore_folder(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageRestoreResponse {
+        message: "Folder restored from trash".to_owned(),
+        restored_path: result.restored_path,
+        entry_type: result.entry_type,
+    }))
+}
+
+pub async fn restore_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeleteStorageRequest>,
+) -> ApiResult<Json<StorageRestoreResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let result = storage_service::restore_file(&state.pool, &current_user, query.path).await?;
+
+    Ok(Json(StorageRestoreResponse {
+        message: "File restored from trash".to_owned(),
+        restored_path: result.restored_path,
+        entry_type: result.entry_type,
+    }))
+}
+
+pub async fn download_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DownloadFileRequest>,
+) -> ApiResult<Response> {
+    let current_user = if headers.get(AUTHORIZATION).is_some() {
+        service::authenticate_headers(&state.pool, &headers).await?
+    } else if let Some(token) = query.access_token.as_deref() {
+        service::authenticate_access_token(&state.pool, token).await?
+    } else {
+        return Err(crate::error::ApiError::Unauthorized(
+            "Missing access token".to_owned(),
+        ));
+    };
+
+    let file =
+        storage_service::resolve_file_download(&state.pool, &current_user, query.path).await?;
+    let file_handle = File::open(&file.absolute_path).await.map_err(|_| {
+        crate::error::ApiError::internal_with_context("Failed to open file for download")
+    })?;
+    let file_size = file_handle.metadata().await.map_err(|_| {
+        crate::error::ApiError::internal_with_context("Failed to read file metadata for download")
+    })?;
+
+    let stream = ReaderStream::new(file_handle);
+    let body = Body::from_stream(stream);
+
+    let content_type = file
+        .mime_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            mime_guess::from_path(&file.download_name)
+                .first_or_octet_stream()
+                .to_string()
+        });
+
+    let file_name_escaped = file
+        .download_name
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let content_disposition = format!("attachment; filename=\"{file_name_escaped}\"");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_DISPOSITION, content_disposition)
+        .header(CONTENT_LENGTH, file_size.len().to_string())
+        .body(body)
+        .map_err(|_| {
+            crate::error::ApiError::internal_with_context("Failed to build file download response")
+        })
 }
 
 pub async fn upload_file(
@@ -230,4 +458,18 @@ fn build_temp_upload_path(
     Ok(temp_dir.join(format!(
         "u{user_id}-{unix_ms}-{random_hex}.{extension}.part"
     )))
+}
+
+fn map_folder_metadata_response(
+    payload: StorageFolderMetadataResult,
+) -> StorageFolderMetadataResponse {
+    StorageFolderMetadataResponse {
+        name: payload.name,
+        path: payload.path,
+        created_at_unix_ms: payload.created_at_unix_ms,
+        modified_at_unix_ms: payload.modified_at_unix_ms,
+        folder_count: payload.folder_count,
+        file_count: payload.file_count,
+        total_item_count: payload.total_item_count,
+    }
 }

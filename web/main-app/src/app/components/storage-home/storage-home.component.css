@@ -113,6 +113,10 @@ button {
   width: 48px;
   height: 48px;
   padding: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .info-button img {
@@ -121,32 +125,50 @@ button {
   object-fit: contain;
 }
 
-.filters-row {
+.info-button:hover {
+  border-color: color-mix(in srgb, var(--focus) 45%, var(--line));
+  background: color-mix(in srgb, var(--focus) 10%, var(--panel));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 14%, transparent);
+}
+
+.info-button:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+.quick-filters {
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--panel);
-  min-height: 48px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   gap: 0.48rem;
-  padding: 0.34rem 0.58rem;
+  padding: 0.3rem 0.52rem;
 }
 
-.filters-row button {
+.quick-filters button {
   border: 1px solid var(--line-strong);
   border-radius: 9px;
   background: var(--input);
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 0.58rem;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
 }
 
-.filters-row img {
+.quick-filters img {
   width: 14px;
   height: 14px;
+}
+
+.right-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .list-wrap,
@@ -224,6 +246,7 @@ button {
   font-size: 0.94rem;
   font-weight: 600;
   color: var(--muted);
+  padding-right: 1.2rem;
 }
 
 .sort-cell {
@@ -241,10 +264,15 @@ button {
   border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   font-size: 0.92rem;
   color: var(--text);
+  transition: background-color 120ms ease;
 }
 
 .list-row:last-child {
   border-bottom: none;
+}
+
+.list-row:hover {
+  background: color-mix(in srgb, var(--focus) 6%, var(--panel));
 }
 
 .name-cell {
@@ -278,6 +306,11 @@ button {
   object-fit: contain;
 }
 
+.owner-avatar {
+  border-radius: 999px;
+  object-fit: cover;
+}
+
 .more-cell {
   border: none;
   background: transparent;
@@ -287,12 +320,75 @@ button {
   padding: 0;
   display: grid;
   place-items: center;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.more-cell:hover {
+  background: color-mix(in srgb, var(--focus) 10%, var(--panel));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 30%, var(--line));
+}
+
+.more-cell:active {
+  transform: scale(0.96);
+  background: color-mix(in srgb, var(--focus) 16%, var(--panel));
+}
+
+.more-cell:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--focus) 40%, var(--line)),
+    0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
 }
 
 .more-cell img {
   width: 14px;
   height: 14px;
   object-fit: contain;
+}
+
+.entry-context-menu {
+  position: fixed;
+  z-index: 65;
+  min-width: 168px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--theme-shadow);
+  padding: 0.25rem;
+}
+
+.entry-context-menu button {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  min-height: 34px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.entry-context-menu button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 8%, var(--panel));
+}
+
+.entry-context-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.entry-context-menu button.danger {
+  border-color: color-mix(in srgb, var(--theme-danger, #c61e1e) 45%, transparent);
+  color: var(--theme-danger, #c61e1e);
+}
+
+.entry-context-menu button.danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-danger, #c61e1e) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--theme-danger, #c61e1e) 10%, var(--panel));
 }
 
 .status-text {
@@ -322,6 +418,12 @@ button {
   gap: 0.34rem;
   font-size: 0.9rem;
   color: var(--text);
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.grid-item:hover {
+  background: color-mix(in srgb, var(--focus) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--focus) 24%, var(--line));
 }
 
 .grid-name {
@@ -341,12 +443,83 @@ button {
   object-fit: contain;
 }
 
+.folder-metadata-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.folder-metadata-modal {
+  width: min(500px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--theme-shadow);
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.62rem;
+}
+
+.folder-metadata-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.folder-metadata-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.folder-metadata-close {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--input);
+  color: var(--text);
+  min-height: 32px;
+  padding: 0 0.68rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.folder-metadata-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
+}
+
+.folder-metadata-grid dt {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.folder-metadata-grid dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 :host-context([data-theme='dark']) .view-toggle img,
 :host-context([data-theme='dark']) .info-button img,
-:host-context([data-theme='dark']) .filters-row img,
+:host-context([data-theme='dark']) .quick-filters img,
 :host-context([data-theme='dark']) .sort-cell img,
-:host-context([data-theme='dark']) .owner-cell img,
+:host-context([data-theme='dark']) .name-cell img,
+:host-context([data-theme='dark']) .grid-name img,
 :host-context([data-theme='dark']) .more-cell img {
+  filter: invert(1) brightness(1.2);
+}
+
+:host-context([data-theme='dark']) .owner-avatar.default-avatar {
   filter: invert(1) brightness(1.2);
 }
 
@@ -362,20 +535,21 @@ button {
   .path-and-view {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      'crumbs info'
-      'toggle toggle';
+      'crumbs tools'
+      'filters filters';
   }
 
   .breadcrumbs {
     grid-area: crumbs;
   }
 
-  .info-button {
-    grid-area: info;
+  .right-tools {
+    grid-area: tools;
+    justify-content: flex-end;
   }
 
-  .view-toggle {
-    grid-area: toggle;
+  .quick-filters {
+    grid-area: filters;
     justify-content: flex-start;
   }
 

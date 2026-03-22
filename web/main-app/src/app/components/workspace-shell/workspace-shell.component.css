@@ -289,7 +289,7 @@
 }
 
 :host-context([data-theme='dark']) .theme-toggle-icon {
-  filter: none;
+  filter: invert(1) brightness(1.2);
 }
 
 @media (max-width: 980px) {

@@ -2,8 +2,11 @@ import { HttpClient, HttpEvent, HttpHeaders, HttpParams } from '@angular/common/
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { StorageDeleteResponseDto } from '../dto/storage-delete-response.dto';
+import { StorageFolderMetadataDto } from '../dto/storage-folder-metadata.dto';
 import { StorageListResponseDto } from '../dto/storage-list-response.dto';
 import { StorageMutationResponseDto } from '../dto/storage-mutation-response.dto';
+import { StorageRestoreResponseDto } from '../dto/storage-restore-response.dto';
 
 @Injectable({
   providedIn: 'root'
@@ -36,6 +39,26 @@ export class StorageApiService {
     );
   }
 
+  listTrash(
+    apiBaseUrl: string,
+    accessToken: string,
+    search: string
+  ): Observable<StorageListResponseDto> {
+    let params = new HttpParams();
+
+    if (search.trim().length > 0) {
+      params = params.set('q', search.trim());
+    }
+
+    return this.http.get<StorageListResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/trash/list'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
   createFolder(
     apiBaseUrl: string,
     accessToken: string,
@@ -50,6 +73,26 @@ export class StorageApiService {
       },
       {
         headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
+  folderMetadata(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageFolderMetadataDto> {
+    let params = new HttpParams();
+
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.get<StorageFolderMetadataDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/folders/metadata'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
       }
     );
   }
@@ -73,6 +116,138 @@ export class StorageApiService {
         observe: 'events'
       }
     );
+  }
+
+  deleteFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageDeleteResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.delete<StorageDeleteResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/files'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  deleteFolder(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageDeleteResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.delete<StorageDeleteResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/folders'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  permanentlyDeleteFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageDeleteResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.delete<StorageDeleteResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/trash/files'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  permanentlyDeleteFolder(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageDeleteResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.delete<StorageDeleteResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/trash/folders'),
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  restoreFile(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageRestoreResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.post<StorageRestoreResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/trash/files/restore'),
+      null,
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  restoreFolder(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): Observable<StorageRestoreResponseDto> {
+    let params = new HttpParams();
+    if (path.trim().length > 0) {
+      params = params.set('path', path.trim());
+    }
+
+    return this.http.post<StorageRestoreResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/trash/folders/restore'),
+      null,
+      {
+        headers: this.authHeaders(accessToken),
+        params
+      }
+    );
+  }
+
+  buildFileDownloadUrl(
+    apiBaseUrl: string,
+    accessToken: string,
+    path: string
+  ): string {
+    const params = new URLSearchParams();
+
+    if (path.trim().length > 0) {
+      params.set('path', path.trim());
+    }
+
+    params.set('accessToken', accessToken.trim());
+
+    return `${this.buildUrl(apiBaseUrl, '/api/client/storage/files/download')}?${params.toString()}`;
   }
 
   private authHeaders(accessToken: string): HttpHeaders {

@@ -1,8 +1,9 @@
 use crate::{
     app_state::AppState,
     modules::{
-        auth::handlers as auth_handlers, setup::handlers as setup_handlers,
-        storage::handlers as storage_handlers, system::handlers as system_handlers,
+        admin::handlers as admin_handlers, auth::handlers as auth_handlers,
+        setup::handlers as setup_handlers, storage::handlers as storage_handlers,
+        system::handlers as system_handlers,
     },
     web::static_files::{serve_admin_static, serve_client_static},
 };
@@ -11,7 +12,7 @@ use axum::{
     extract::DefaultBodyLimit,
     http::Uri,
     response::Response,
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 
 const MAX_UPLOAD_REQUEST_BYTES: usize = 5 * 1024 * 1024 * 1024;
@@ -28,13 +29,53 @@ pub fn build_client_router(state: AppState) -> Router {
         )
         .route("/api/client/storage/list", get(storage_handlers::list))
         .route(
+            "/api/client/storage/trash/list",
+            get(storage_handlers::list_trash),
+        )
+        .route(
+            "/api/client/storage/folders/metadata",
+            get(storage_handlers::folder_metadata),
+        )
+        .route(
             "/api/client/storage/folders",
-            post(storage_handlers::create_folder),
+            post(storage_handlers::create_folder).delete(storage_handlers::delete_folder),
         )
         .route(
             "/api/client/storage/files/upload",
             post(storage_handlers::upload_file)
                 .layer(DefaultBodyLimit::max(MAX_UPLOAD_REQUEST_BYTES)),
+        )
+        .route(
+            "/api/client/storage/files",
+            delete(storage_handlers::delete_file),
+        )
+        .route(
+            "/api/client/storage/trash/folders",
+            delete(storage_handlers::permanently_delete_folder),
+        )
+        .route(
+            "/api/client/storage/trash/files",
+            delete(storage_handlers::permanently_delete_file),
+        )
+        .route(
+            "/api/client/storage/trash/folders/restore",
+            post(storage_handlers::restore_folder),
+        )
+        .route(
+            "/api/client/storage/trash/files/restore",
+            post(storage_handlers::restore_file),
+        )
+        .route(
+            "/api/client/storage/files/download",
+            get(storage_handlers::download_file),
+        )
+        .route(
+            "/api/client/admin/users",
+            get(admin_handlers::list_users).post(admin_handlers::create_user),
+        )
+        .route(
+            "/api/client/admin/users/:user_id",
+            put(admin_handlers::update_user).delete(admin_handlers::delete_user),
         )
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/", get(client_index_handler))

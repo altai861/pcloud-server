@@ -28,3 +28,32 @@ pub struct StorageMutationResponse {
     pub message: String,
     pub entry: StorageEntryDto,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageFolderMetadataResponse {
+    pub name: String,
+    pub path: String,
+    pub created_at_unix_ms: i64,
+    pub modified_at_unix_ms: i64,
+    pub folder_count: i64,
+    pub file_count: i64,
+    pub total_item_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageDeleteResponse {
+    pub message: String,
+    pub deleted_path: String,
+    pub entry_type: String,
+    pub reclaimed_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageRestoreResponse {
+    pub message: String,
+    pub restored_path: String,
+    pub entry_type: String,
+}

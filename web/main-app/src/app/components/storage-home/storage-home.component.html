@@ -7,33 +7,35 @@
       </button>
     </div>
 
-    <div class="view-toggle">
-      <button type="button" [class.active]="viewMode === 'list'" (click)="setViewMode('list')">
-        <img src="list-view.png" alt="List view" />
+    <div class="quick-filters">
+      <button type="button">
+        Type
+        <img src="down-arrow.png" alt="" />
       </button>
-      <button type="button" [class.active]="viewMode === 'grid'" (click)="setViewMode('grid')">
-        <img src="other-view.png" alt="Grid view" />
+      <button type="button">
+        People
+        <img src="down-arrow.png" alt="" />
+      </button>
+      <button type="button">
+        Modified
+        <img src="down-arrow.png" alt="" />
       </button>
     </div>
 
-    <button type="button" class="info-button">
-      <img src="info.png" alt="Information" />
-    </button>
-  </section>
+    <div class="right-tools">
+      <div class="view-toggle">
+        <button type="button" [class.active]="viewMode === 'list'" (click)="setViewMode('list')">
+          <img src="list-view.png" alt="List view" />
+        </button>
+        <button type="button" [class.active]="viewMode === 'grid'" (click)="setViewMode('grid')">
+          <img src="other-view.png" alt="Grid view" />
+        </button>
+      </div>
 
-  <section class="filters-row">
-    <button type="button">
-      Type
-      <img src="down-arrow.png" alt="" />
-    </button>
-    <button type="button">
-      People
-      <img src="down-arrow.png" alt="" />
-    </button>
-    <button type="button">
-      Modified
-      <img src="down-arrow.png" alt="" />
-    </button>
+      <button type="button" class="info-button" (click)="openFolderMetadata()">
+        <img src="info.png" alt="Information" />
+      </button>
+    </div>
   </section>
 
   <section class="upload-progress" *ngIf="isUploadInProgress">
@@ -73,20 +75,25 @@
       No items in this folder.
     </p>
 
-    <div class="list-row" *ngFor="let entry of entries">
+    <div class="list-row" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button class="name-cell" type="button" (click)="openEntry(entry)">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </button>
 
       <span class="owner-cell">
-        <img src="profile.png" alt="" />
+        <img
+          class="owner-avatar"
+          [class.default-avatar]="!ownerProfileImageSrc"
+          [src]="ownerProfileImageSrc ?? 'profile.png'"
+          alt=""
+        />
         <span>me</span>
       </span>
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
-      <button type="button" class="more-cell">
+      <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
         <img src="three-vertical-dots.png" alt="More" />
       </button>
     </div>
@@ -99,7 +106,7 @@
       No items in this folder.
     </p>
 
-    <article class="grid-item" *ngFor="let entry of entries">
+    <article class="grid-item" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button type="button" class="grid-name" (click)="openEntry(entry)">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
@@ -108,4 +115,63 @@
       <span>{{ formatSize(entry.sizeBytes) }}</span>
     </article>
   </section>
+</section>
+
+<section
+  class="entry-context-menu"
+  *ngIf="isEntryMenuOpen"
+  [style.left.px]="entryMenuX"
+  [style.top.px]="entryMenuY"
+  (click)="$event.stopPropagation()"
+  (contextmenu)="$event.preventDefault()"
+>
+  <button type="button" (click)="onDownloadEntryClick($event)" [disabled]="isEntryDownloadDisabled">
+    Download
+  </button>
+  <button type="button" class="danger" (click)="onDeleteEntryClick($event)">
+    Move to Trash
+  </button>
+</section>
+
+<section class="folder-metadata-overlay" *ngIf="isFolderMetadataOpen" (click)="closeFolderMetadata()">
+  <article
+    class="folder-metadata-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="folder-metadata-title"
+    (click)="$event.stopPropagation()"
+  >
+    <header class="folder-metadata-header">
+      <h2 id="folder-metadata-title">Folder metadata</h2>
+      <button type="button" class="folder-metadata-close" (click)="closeFolderMetadata()">Close</button>
+    </header>
+
+    <p class="status-text" *ngIf="isFolderMetadataLoading">Loading metadata...</p>
+    <p class="status-text error" *ngIf="!isFolderMetadataLoading && folderMetadataErrorMessage">
+      {{ folderMetadataErrorMessage }}
+    </p>
+
+    <dl class="folder-metadata-grid" *ngIf="!isFolderMetadataLoading && folderMetadata">
+      <dt>Name</dt>
+      <dd>{{ folderMetadata.name }}</dd>
+
+      <dt>Path</dt>
+      <dd>{{ folderMetadata.path }}</dd>
+
+      <dt>Created</dt>
+      <dd>{{ formatDateTime(folderMetadata.createdAtUnixMs) }}</dd>
+
+      <dt>Modified</dt>
+      <dd>{{ formatDateTime(folderMetadata.modifiedAtUnixMs) }}</dd>
+
+      <dt>Subfolders</dt>
+      <dd>{{ folderMetadata.folderCount }}</dd>
+
+      <dt>Files</dt>
+      <dd>{{ folderMetadata.fileCount }}</dd>
+
+      <dt>Total items</dt>
+      <dd>{{ folderMetadata.totalItemCount }}</dd>
+    </dl>
+  </article>
 </section>

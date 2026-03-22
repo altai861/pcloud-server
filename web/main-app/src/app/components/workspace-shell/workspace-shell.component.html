@@ -1,38 +1,23 @@
 <main class="workspace-page">
   <header class="workspace-header">
-    <a class="logo" routerLink="/app/home">PCloud</a>
+    <a class="logo" routerLink="/app/storage">PCloud</a>
 
     <label class="header-search">
       <img src="search.png" alt="" />
-      <input
-        type="text"
-        [ngModel]="searchInput"
-        (ngModelChange)="onSearchChange($event)"
-        placeholder="Search in Storage"
-      />
+      <input type="text" [ngModel]="searchInput" (ngModelChange)="onSearchChange($event)"
+        placeholder="Search in Storage" />
     </label>
 
     <div class="header-actions">
-      <button
-        type="button"
-        class="theme-toggle"
+      <button type="button" class="theme-toggle"
         [attr.aria-label]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-        [title]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-        (click)="toggleTheme()"
-      >
-        <img
-          class="theme-toggle-icon"
-          [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
-          [alt]="isDarkMode ? 'Light mode icon' : 'Dark mode icon'"
-        />
+        [title]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'" (click)="toggleTheme()">
+        <img class="theme-toggle-icon" [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
+          [alt]="isDarkMode ? 'Light mode icon' : 'Dark mode icon'" />
       </button>
       <button type="button" title="Profile" (click)="onProfileClick()">
-        <img
-          class="profile-avatar-icon"
-          [class.default-avatar]="!profileImageSrc"
-          [src]="profileImageSrc ?? 'profile.png'"
-          alt="Profile"
-        />
+        <img class="profile-avatar-icon" [class.default-avatar]="!profileImageSrc"
+          [src]="profileImageSrc ?? 'profile.png'" alt="Profile" />
       </button>
     </div>
   </header>
@@ -50,12 +35,7 @@
           <button type="button" (click)="onCreateFolderClick($event)">Create folder</button>
         </section>
 
-        <input
-          #uploadFileInput
-          type="file"
-          class="upload-file-input"
-          (change)="onUploadFileSelected($event)"
-        />
+        <input #uploadFileInput type="file" class="upload-file-input" (change)="onUploadFileSelected($event)" />
       </div>
 
       <nav class="sidebar-nav">
@@ -75,7 +55,7 @@
           <img src="shared.png" alt="" />
           <span>Shared</span>
         </a>
-        <a routerLink="/app/admin" routerLinkActive="active">
+        <a *ngIf="currentUser?.role === 'admin'" routerLink="/app/admin" routerLinkActive="active">
           <img src="admin.png" alt="" />
           <span>Admin</span>
         </a>

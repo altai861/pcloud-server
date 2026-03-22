@@ -10,9 +10,11 @@ export type StorageSidebarAction =
 })
 export class StorageSidebarActionsService {
   private readonly actionSubject = new Subject<StorageSidebarAction>();
+  private readonly usageChangedSubject = new Subject<void>();
   private readonly queuedActions: StorageSidebarAction[] = [];
 
   readonly actions$: Observable<StorageSidebarAction> = this.actionSubject.asObservable();
+  readonly usageChanged$: Observable<void> = this.usageChangedSubject.asObservable();
 
   emit(action: StorageSidebarAction): void {
     this.actionSubject.next(action);
@@ -20,6 +22,10 @@ export class StorageSidebarActionsService {
 
   queue(action: StorageSidebarAction): void {
     this.queuedActions.push(action);
+  }
+
+  notifyUsageChanged(): void {
+    this.usageChangedSubject.next();
   }
 
   consumeQueued(): StorageSidebarAction[] {
