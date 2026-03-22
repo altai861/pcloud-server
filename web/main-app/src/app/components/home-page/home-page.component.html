@@ -1,11 +1,11 @@
 <section class="home-content">
   <header class="home-header">
     <div>
-      <h2>Recent Activity</h2>
-      <p>Files and folders you opened recently.</p>
+      <h2>{{ 'home.recentActivity' | t }}</h2>
+      <p>{{ 'home.recentSubtitle' | t }}</p>
     </div>
 
-    <a class="open-storage-link" routerLink="/app/storage">Open Storage</a>
+    <a class="open-storage-link" routerLink="/app/storage">{{ 'home.openStorage' | t }}</a>
   </header>
 
   <section class="recent-list" *ngIf="recentEntries.length > 0; else noRecentItems">
@@ -18,18 +18,18 @@
       </div>
 
       <div class="recent-meta">
-        <span>{{ entry.entryType === 'folder' ? 'Folder' : 'File' }}</span>
-        <span>Opened {{ formatDate(entry.openedAtUnixMs) }}</span>
-        <span>Modified {{ formatDate(entry.modifiedAtUnixMs) }}</span>
-        <span>Size {{ formatSize(entry.sizeBytes) }}</span>
+        <span>{{ ('common.entryType.' + entry.entryType) | t }}</span>
+        <span>{{ 'home.opened' | t: { value: formatDate(entry.openedAtUnixMs) } }}</span>
+        <span>{{ 'home.modified' | t: { value: formatDate(entry.modifiedAtUnixMs) } }}</span>
+        <span>{{ 'home.size' | t: { value: formatSize(entry.sizeBytes) } }}</span>
       </div>
     </article>
   </section>
 
   <ng-template #noRecentItems>
     <section class="empty-state">
-      <h3>No Recent Files Yet</h3>
-      <p>Open files or folders from Storage and they will appear here.</p>
+      <h3>{{ 'home.noRecentTitle' | t }}</h3>
+      <p>{{ 'home.noRecentBody' | t }}</p>
     </section>
   </ng-template>
 </section>

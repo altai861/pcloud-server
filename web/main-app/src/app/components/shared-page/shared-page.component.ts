@@ -6,6 +6,8 @@ import { finalize, Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { SharedResourceEntryDto } from '../../dto/shared-resource-entry.dto';
+import { TPipe } from '../../pipes/t.pipe';
+import { I18nService } from '../../services/i18n.service';
 import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 
@@ -28,7 +30,7 @@ type TypeFilterValue =
 
 interface FilterOption<T extends string> {
   value: T;
-  label: string;
+  labelKey: string;
 }
 
 interface PeopleFilterOption {
@@ -54,7 +56,7 @@ const CODE_EXTENSIONS = new Set([
 
 @Component({
   selector: 'app-shared-page',
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './shared-page.component.html',
   styleUrl: './shared-page.component.css'
 })
@@ -81,30 +83,31 @@ export class SharedPageComponent implements OnInit, OnDestroy {
   selectedPeopleUserIds = new Set<number>();
 
   readonly typeFilterOptions: FilterOption<TypeFilterValue>[] = [
-    { value: 'all', label: 'All resources' },
-    { value: 'folder', label: 'Folders only' },
-    { value: 'file-any', label: 'Any file' },
-    { value: 'image', label: 'Images' },
-    { value: 'document', label: 'Documents' },
-    { value: 'pdf', label: 'PDF files' },
-    { value: 'spreadsheet', label: 'Spreadsheets' },
-    { value: 'presentation', label: 'Presentations' },
-    { value: 'archive', label: 'Archives' },
-    { value: 'audio', label: 'Audio' },
-    { value: 'video', label: 'Video' },
-    { value: 'code', label: 'Code files' }
+    { value: 'all', labelKey: 'storage.filter.allResources' },
+    { value: 'folder', labelKey: 'storage.filter.foldersOnly' },
+    { value: 'file-any', labelKey: 'storage.filter.anyFile' },
+    { value: 'image', labelKey: 'storage.filter.images' },
+    { value: 'document', labelKey: 'storage.filter.documents' },
+    { value: 'pdf', labelKey: 'storage.filter.pdfFiles' },
+    { value: 'spreadsheet', labelKey: 'storage.filter.spreadsheets' },
+    { value: 'presentation', labelKey: 'storage.filter.presentations' },
+    { value: 'archive', labelKey: 'storage.filter.archives' },
+    { value: 'audio', labelKey: 'storage.filter.audio' },
+    { value: 'video', labelKey: 'storage.filter.video' },
+    { value: 'code', labelKey: 'storage.filter.codeFiles' }
   ];
 
   readonly modifiedFilterOptions: FilterOption<ModifiedFilterValue>[] = [
-    { value: 'any', label: 'Any time' },
-    { value: 'last-day', label: 'Last day' },
-    { value: 'last-week', label: 'Last week' },
-    { value: 'last-month', label: 'Last month' },
-    { value: 'last-year', label: 'Last year' }
+    { value: 'any', labelKey: 'common.filter.anyTime' },
+    { value: 'last-day', labelKey: 'common.filter.lastDay' },
+    { value: 'last-week', labelKey: 'common.filter.lastWeek' },
+    { value: 'last-month', labelKey: 'common.filter.lastMonth' },
+    { value: 'last-year', labelKey: 'common.filter.lastYear' }
   ];
 
   constructor(
     private readonly storageApiService: StorageApiService,
+    private readonly i18nService: I18nService,
     private readonly sessionService: ClientSessionService,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
@@ -182,11 +185,15 @@ export class SharedPageComponent implements OnInit, OnDestroy {
   }
 
   get typeFilterLabel(): string {
-    return this.typeFilterOptions.find((option) => option.value === this.typeFilter)?.label ?? 'Type';
+    const key = this.typeFilterOptions.find((option) => option.value === this.typeFilter)?.labelKey
+      ?? 'storage.filter.type';
+    return this.i18nService.t(key);
   }
 
   get modifiedFilterLabel(): string {
-    return this.modifiedFilterOptions.find((option) => option.value === this.modifiedFilter)?.label ?? 'Modified';
+    const key = this.modifiedFilterOptions.find((option) => option.value === this.modifiedFilter)?.labelKey
+      ?? 'storage.filter.modified';
+    return this.i18nService.t(key);
   }
 
   get sortLabel(): string {

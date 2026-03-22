@@ -18,14 +18,14 @@
           (contextmenu)="$event.preventDefault()">
           <button type="button" class="filter-option" *ngFor="let option of typeFilterOptions"
             [class.active]="typeFilter === option.value" (click)="setTypeFilter(option.value)">
-            {{ option.label }}
+            {{ option.labelKey | t }}
           </button>
         </section>
       </div>
 
       <div class="filter-anchor">
         <button type="button" (click)="toggleFilterMenu('people', $event)">
-          People
+          {{ 'storage.people' | t }}
           <span class="filter-count" *ngIf="selectedPeopleUserIds.size > 0">{{ selectedPeopleUserIds.size }}</span>
           <img src="down-dot.png" alt="" />
         </button>
@@ -34,7 +34,7 @@
           (click)="$event.stopPropagation()" (contextmenu)="$event.preventDefault()">
           <label class="people-search-label">
             <input type="text" [value]="peopleSearchTerm" (input)="peopleSearchTerm = $any($event.target).value"
-              placeholder="Search people" />
+              [placeholder]="'storage.searchPeople' | t" />
           </label>
 
           <button type="button" class="filter-option" *ngFor="let person of peopleFilterOptions"
@@ -42,10 +42,10 @@
             {{ person.username }}
           </button>
 
-          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">No matching users</p>
+          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">{{ 'storage.noMatchingUsers' | t }}</p>
 
           <div class="people-actions">
-            <button type="button" class="subtle" (click)="clearPeopleSelection()">Clear</button>
+            <button type="button" class="subtle" (click)="clearPeopleSelection()">{{ 'common.clear' | t }}</button>
           </div>
         </section>
       </div>
@@ -60,37 +60,40 @@
           (contextmenu)="$event.preventDefault()">
           <button type="button" class="filter-option" *ngFor="let option of modifiedFilterOptions"
             [class.active]="modifiedFilter === option.value" (click)="setModifiedFilter(option.value)">
-            {{ option.label }}
+            {{ option.labelKey | t }}
           </button>
         </section>
       </div>
 
       <button type="button" class="clear-filters-inline" *ngIf="hasActiveFilters" (click)="clearAllFilters()">
-        Clear
+        {{ 'storage.clearFilters' | t }}
       </button>
     </div>
 
     <div class="right-tools">
       <div class="view-toggle">
-        <button type="button" [class.active]="viewMode === 'list'" (click)="setViewMode('list')">
-          <img src="list-view.png" alt="List view" />
+        <button type="button" [class.active]="viewMode === 'list'" (click)="setViewMode('list')"
+          [attr.aria-label]="'storage.listView' | t" [title]="'storage.listView' | t">
+          <img src="list-view.png" [alt]="'storage.listView' | t" />
         </button>
-        <button type="button" [class.active]="viewMode === 'grid'" (click)="setViewMode('grid')">
-          <img src="other-view.png" alt="Grid view" />
+        <button type="button" [class.active]="viewMode === 'grid'" (click)="setViewMode('grid')"
+          [attr.aria-label]="'storage.gridView' | t" [title]="'storage.gridView' | t">
+          <img src="other-view.png" [alt]="'storage.gridView' | t" />
         </button>
       </div>
 
-      <button type="button" class="info-button" (click)="openFolderMetadata()">
-        <img src="info.png" alt="Information" />
+      <button type="button" class="info-button" (click)="openFolderMetadata()"
+        [attr.aria-label]="'storage.information' | t" [title]="'storage.information' | t">
+        <img src="info.png" [alt]="'storage.information' | t" />
       </button>
     </div>
   </section>
 
   <section class="upload-progress" *ngIf="isUploadInProgress">
     <div class="upload-progress-header">
-      <span>Uploading {{ uploadFileName }}</span>
+      <span>{{ 'storage.uploading' | t: { name: uploadFileName } }}</span>
       <span *ngIf="uploadProgressPercent !== null">{{ uploadProgressPercent }}%</span>
-      <span *ngIf="uploadProgressPercent === null">In progress...</span>
+      <span *ngIf="uploadProgressPercent === null">{{ 'storage.inProgress' | t }}</span>
     </div>
 
     <div class="upload-progress-track">
@@ -104,18 +107,18 @@
 
   <section class="list-wrap" *ngIf="viewMode === 'list'">
     <header class="list-header">
-      <span>Name</span>
-      <span>Owner / Created by</span>
+      <span>{{ 'storage.name' | t }}</span>
+      <span>{{ 'storage.ownerCreatedBy' | t }}</span>
       <button type="button" class="column-sort-button" [class.active]="activeSortField === 'modified'"
         [attr.aria-label]="modifiedSortOrder === 'asc' ? 'Sort by modified date ascending' : 'Sort by modified date descending'"
         (click)="toggleModifiedSortOrder()">
-        <span>Modified date</span>
+        <span>{{ 'storage.modifiedDate' | t }}</span>
         <img class="order-icon" [src]="modifiedSortOrder === 'asc' ? 'up-arrow.png' : 'down-arrow.png'" alt="" />
       </button>
       <button type="button" class="column-sort-button" [class.active]="activeSortField === 'size'"
         [attr.aria-label]="sizeSortOrder === 'asc' ? 'Sort by file size ascending' : 'Sort by file size descending'"
         (click)="toggleSizeSortOrder()">
-        <span>File size</span>
+        <span>{{ 'storage.fileSize' | t }}</span>
         <img class="order-icon" [src]="sizeSortOrder === 'asc' ? 'up-arrow.png' : 'down-arrow.png'" alt="" />
       </button>
       <span class="star-cell-header" aria-hidden="true"></span>
@@ -127,10 +130,10 @@
       </button>
     </header>
 
-    <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
+    <p class="status-text" *ngIf="storageLoading">{{ 'storage.loading' | t }}</p>
     <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
     <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && displayEntries.length === 0">
-      {{ entries.length === 0 ? 'No items in this folder.' : 'No items match the selected filters.' }}
+      {{ entries.length === 0 ? ('storage.empty' | t) : ('storage.emptyFiltered' | t) }}
     </p>
 
     <div class="list-row" *ngFor="let entry of displayEntries" [class.selected]="isEntrySelected(entry)"
@@ -145,21 +148,21 @@
         <span class="user-pill">
           <img class="owner-avatar" [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
             [src]="ownerAvatarSrc(entry.ownerUserId)" (error)="onOwnerAvatarError($event, entry.ownerUserId)" alt="" />
-          <span>Owner: {{ entry.ownerUsername }}</span>
+          <span>{{ 'storage.owner' | t: { user: entry.ownerUsername } }}</span>
         </span>
         <span class="user-pill">
           <img class="owner-avatar" [class.default-avatar]="isDefaultOwnerAvatar(entry.createdByUserId)"
             [src]="ownerAvatarSrc(entry.createdByUserId)" (error)="onOwnerAvatarError($event, entry.createdByUserId)"
             alt="" />
-          <span>Created: {{ entry.createdByUsername }}</span>
+          <span>{{ 'storage.created' | t: { user: entry.createdByUsername } }}</span>
         </span>
       </span>
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
       <button *ngIf="currentPrivilege === 'owner'; else sharedStarPlaceholder" type="button" class="star-cell"
-        [class.active]="entry.isStarred" [attr.aria-label]="entry.isStarred ? 'Remove star' : 'Add star'"
-        [title]="entry.isStarred ? 'Remove star' : 'Add star'" (click)="onStarClick($event, entry)">
+        [class.active]="entry.isStarred" [attr.aria-label]="entry.isStarred ? ('storage.removeStar' | t) : ('storage.addStar' | t)"
+        [title]="entry.isStarred ? ('storage.removeStar' | t) : ('storage.addStar' | t)" (click)="onStarClick($event, entry)">
         <img [src]="entry.isStarred ? 'star-filled.png' : 'starred.png'" alt="" />
       </button>
       <ng-template #sharedStarPlaceholder>
@@ -172,16 +175,16 @@
 
     <div class="pagination-controls" *ngIf="!storageLoading && !storageErrorMessage && entries.length > 0">
       <button type="button" *ngIf="hasMoreEntries" [disabled]="isLoadingMore" (click)="loadMoreEntries()">
-        {{ isLoadingMore ? 'Loading more...' : 'Load more' }}
+        {{ isLoadingMore ? ('common.loadingMore' | t) : ('common.loadMore' | t) }}
       </button>
     </div>
   </section>
 
   <section class="grid-wrap" *ngIf="viewMode === 'grid'">
-    <p class="status-text" *ngIf="storageLoading">Loading storage items...</p>
+    <p class="status-text" *ngIf="storageLoading">{{ 'storage.loading' | t }}</p>
     <p class="status-text error" *ngIf="storageErrorMessage">{{ storageErrorMessage }}</p>
     <p class="status-text" *ngIf="!storageLoading && !storageErrorMessage && displayEntries.length === 0">
-      {{ entries.length === 0 ? 'No items in this folder.' : 'No items match the selected filters.' }}
+      {{ entries.length === 0 ? ('storage.empty' | t) : ('storage.emptyFiltered' | t) }}
     </p>
 
     <article class="grid-item" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
@@ -195,21 +198,21 @@
 
     <div class="pagination-controls" *ngIf="!storageLoading && !storageErrorMessage && entries.length > 0">
       <button type="button" *ngIf="hasMoreEntries" [disabled]="isLoadingMore" (click)="loadMoreEntries()">
-        {{ isLoadingMore ? 'Loading more...' : 'Load more' }}
+        {{ isLoadingMore ? ('common.loadingMore' | t) : ('common.loadMore' | t) }}
       </button>
     </div>
   </section>
 </section>
 
 <aside class="selection-indicator" *ngIf="selectedEntriesCount > 0">
-  {{ selectedEntriesCount }} selected
+  {{ 'storage.selected' | t: { count: selectedEntriesCount } }}
 </aside>
 
 <section class="entry-context-menu" *ngIf="isEntryMenuOpen" [style.left.px]="entryMenuX" [style.top.px]="entryMenuY"
   (click)="$event.stopPropagation()" (contextmenu)="$event.preventDefault()">
   <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onRenameEntryClick($event)"
     [disabled]="isEntryRenameDisabled">
-    Rename
+    {{ 'common.rename' | t }}
   </button>
   <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onShareEntryClick($event)"
     [disabled]="isEntryShareDisabled">
@@ -219,7 +222,7 @@
     {{ entryDownloadLabel }}
   </button>
   <button type="button" class="danger" (click)="onDeleteEntryClick($event)" [disabled]="isEntryEditDisabled">
-    {{ isEntryMenuForMultiSelection ? (isBulkTrashInProgress ? 'Moving...' : 'Move selected to Trash') : 'Move to Trash'
+    {{ isEntryMenuForMultiSelection ? (isBulkTrashInProgress ? ('storage.moving' | t) : ('storage.moveSelected' | t)) : ('storage.moveToTrash' | t)
     }}
   </button>
 </section>
@@ -227,12 +230,12 @@
 <section class="rename-overlay" *ngIf="isRenameModalOpen" (click)="closeRenameModal()">
   <article class="rename-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
     <header class="rename-header">
-      <h2>Rename {{ renameTarget?.entryType ?? 'item' }}</h2>
-      <button type="button" (click)="closeRenameModal()">Close</button>
+      <h2>{{ 'storage.renameItem' | t: { item: (renameTarget?.entryType ?? 'item') } }}</h2>
+      <button type="button" (click)="closeRenameModal()">{{ 'common.close' | t }}</button>
     </header>
 
     <label class="rename-field">
-      <span>New name</span>
+      <span>{{ 'storage.newName' | t }}</span>
       <input type="text" [value]="renameValue" (input)="renameValue = $any($event.target).value"
         [disabled]="renameSubmitting" maxlength="255" />
     </label>
@@ -240,9 +243,9 @@
     <p class="status-text error" *ngIf="renameErrorMessage">{{ renameErrorMessage }}</p>
 
     <footer class="rename-actions">
-      <button type="button" (click)="closeRenameModal()" [disabled]="renameSubmitting">Cancel</button>
+      <button type="button" (click)="closeRenameModal()" [disabled]="renameSubmitting">{{ 'common.cancel' | t }}</button>
       <button type="button" class="primary" (click)="submitRename()" [disabled]="renameSubmitting">
-        {{ renameSubmitting ? 'Renaming...' : 'Rename' }}
+        {{ renameSubmitting ? ('storage.renaming' | t) : ('common.rename' | t) }}
       </button>
     </footer>
   </article>
@@ -251,12 +254,12 @@
 <section class="share-overlay" *ngIf="isShareModalOpen" (click)="closeShareModal()">
   <article class="share-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
     <header class="share-header">
-      <h2>Share {{ shareModalEntry?.entryType ?? 'resource' }}</h2>
-      <button type="button" (click)="closeShareModal()">Close</button>
+      <h2>{{ 'storage.shareResource' | t: { resource: (shareModalEntry?.entryType ?? 'resource') } }}</h2>
+      <button type="button" (click)="closeShareModal()">{{ 'common.close' | t }}</button>
     </header>
 
     <p class="share-resource-name" *ngIf="shareModalEntry">{{ shareModalEntry.name }}</p>
-    <p class="status-text" *ngIf="sharePermissionsLoading">Loading permissions...</p>
+    <p class="status-text" *ngIf="sharePermissionsLoading">{{ 'storage.loadingPermissions' | t }}</p>
     <p class="status-text error" *ngIf="shareModalErrorMessage">{{ shareModalErrorMessage }}</p>
 
     <section class="share-list" *ngIf="!sharePermissionsLoading">
@@ -268,32 +271,32 @@
 
         <select [value]="target.privilegeType" [disabled]="shareMutationLoading"
           (change)="updateSharePermission(target, $any($event.target).value)">
-          <option value="viewer">Viewer</option>
-          <option value="editor">Editor</option>
+          <option value="viewer">{{ 'storage.viewer' | t }}</option>
+          <option value="editor">{{ 'storage.editor' | t }}</option>
         </select>
 
         <button type="button" class="danger subtle" [disabled]="shareMutationLoading"
           (click)="removeShareTarget(target)">
-          Remove
+          {{ 'common.remove' | t }}
         </button>
       </article>
     </section>
 
     <section class="share-add">
       <label>
-        <span>Search user</span>
+        <span>{{ 'storage.searchUser' | t }}</span>
         <input type="text" [value]="shareUserSearchTerm" [disabled]="shareMutationLoading || shareUsersLoading"
-          (input)="shareUserSearchTerm = $any($event.target).value" placeholder="Username or full name" />
+          (input)="shareUserSearchTerm = $any($event.target).value" [placeholder]="'storage.usernameOrFullName' | t" />
       </label>
 
       <div class="share-add-actions">
         <button type="button" (click)="searchShareableUsers()" [disabled]="shareUsersLoading || shareMutationLoading">
-          {{ shareUsersLoading ? 'Searching...' : 'Search' }}
+          {{ shareUsersLoading ? ('storage.searching' | t) : ('common.search' | t) }}
         </button>
 
         <select [value]="selectedSharePrivilege" (change)="selectedSharePrivilege = $any($event.target).value">
-          <option value="viewer">Viewer</option>
-          <option value="editor">Editor</option>
+          <option value="viewer">{{ 'storage.viewer' | t }}</option>
+          <option value="editor">{{ 'storage.editor' | t }}</option>
         </select>
       </div>
 
@@ -308,7 +311,7 @@
       <footer class="share-footer">
         <button type="button" class="primary" [disabled]="selectedShareUserId === null || shareMutationLoading"
           (click)="grantSharePermission()">
-          {{ shareMutationLoading ? 'Saving...' : 'Grant Permission' }}
+          {{ shareMutationLoading ? ('storage.saving' | t) : ('storage.grantPermission' | t) }}
         </button>
       </footer>
     </section>
@@ -319,41 +322,41 @@
   <article class="folder-metadata-modal" role="dialog" aria-modal="true" aria-labelledby="folder-metadata-title"
     (click)="$event.stopPropagation()">
     <header class="folder-metadata-header">
-      <h2 id="folder-metadata-title">Folder metadata</h2>
-      <button type="button" class="folder-metadata-close" (click)="closeFolderMetadata()">Close</button>
+      <h2 id="folder-metadata-title">{{ 'storage.folderMetadata' | t }}</h2>
+      <button type="button" class="folder-metadata-close" (click)="closeFolderMetadata()">{{ 'common.close' | t }}</button>
     </header>
 
-    <p class="status-text" *ngIf="isFolderMetadataLoading">Loading metadata...</p>
+    <p class="status-text" *ngIf="isFolderMetadataLoading">{{ 'storage.loadingMetadata' | t }}</p>
     <p class="status-text error" *ngIf="!isFolderMetadataLoading && folderMetadataErrorMessage">
       {{ folderMetadataErrorMessage }}
     </p>
 
     <dl class="folder-metadata-grid" *ngIf="!isFolderMetadataLoading && folderMetadata">
-      <dt>Name</dt>
+      <dt>{{ 'storage.name' | t }}</dt>
       <dd>{{ folderMetadata.name }}</dd>
 
-      <dt>Path</dt>
+      <dt>{{ 'storage.path' | t }}</dt>
       <dd>{{ folderMetadata.path }}</dd>
 
-      <dt>Owner</dt>
+      <dt>{{ 'storage.ownerSimple' | t }}</dt>
       <dd>{{ folderMetadata.ownerUsername }}</dd>
 
-      <dt>Your access</dt>
+      <dt>{{ 'storage.yourAccess' | t }}</dt>
       <dd>{{ folderMetadata.currentPrivilege }}</dd>
 
-      <dt>Created</dt>
+      <dt>{{ 'storage.createdSimple' | t }}</dt>
       <dd>{{ formatDateTime(folderMetadata.createdAtUnixMs) }}</dd>
 
-      <dt>Modified</dt>
+      <dt>{{ 'storage.modifiedSimple' | t }}</dt>
       <dd>{{ formatDateTime(folderMetadata.modifiedAtUnixMs) }}</dd>
 
-      <dt>Subfolders</dt>
+      <dt>{{ 'storage.subfolders' | t }}</dt>
       <dd>{{ folderMetadata.folderCount }}</dd>
 
-      <dt>Files</dt>
+      <dt>{{ 'storage.files' | t }}</dt>
       <dd>{{ folderMetadata.fileCount }}</dd>
 
-      <dt>Total items</dt>
+      <dt>{{ 'storage.totalItems' | t }}</dt>
       <dd>{{ folderMetadata.totalItemCount }}</dd>
     </dl>
   </article>

@@ -20,14 +20,14 @@
             [class.active]="typeFilter === option.value"
             (click)="setTypeFilter(option.value)"
           >
-            {{ option.label }}
+            {{ option.labelKey | t }}
           </button>
         </section>
       </div>
 
       <div class="filter-anchor">
         <button type="button" (click)="toggleFilterMenu('people', $event)">
-          People
+          {{ 'shared.people' | t }}
           <span class="filter-count" *ngIf="selectedPeopleUserIds.size > 0">{{ selectedPeopleUserIds.size }}</span>
           <img src="down-arrow.png" alt="" />
         </button>
@@ -43,7 +43,7 @@
               type="text"
               [value]="peopleSearchTerm"
               (input)="peopleSearchTerm = $any($event.target).value"
-              placeholder="Search people"
+              [placeholder]="'shared.searchPeople' | t"
             />
           </label>
 
@@ -57,10 +57,10 @@
             {{ person.username }}
           </button>
 
-          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">No matching users</p>
+          <p class="filter-empty" *ngIf="peopleFilterOptions.length === 0">{{ 'shared.noMatchingUsers' | t }}</p>
 
           <div class="people-actions">
-            <button type="button" class="subtle" (click)="clearPeopleSelection()">Clear</button>
+            <button type="button" class="subtle" (click)="clearPeopleSelection()">{{ 'common.clear' | t }}</button>
           </div>
         </section>
       </div>
@@ -84,7 +84,7 @@
             [class.active]="modifiedFilter === option.value"
             (click)="setModifiedFilter(option.value)"
           >
-            {{ option.label }}
+            {{ option.labelKey | t }}
           </button>
         </section>
       </div>
@@ -95,16 +95,16 @@
         *ngIf="hasActiveFilters"
         (click)="clearAllFilters()"
       >
-        Clear
+        {{ 'common.clear' | t }}
       </button>
     </div>
   </section>
 
   <section class="shared-list-wrap">
     <header class="shared-list-header">
-      <span>Name</span>
-      <span>Owner / Created by</span>
-      <span>Date shared</span>
+      <span>{{ 'shared.name' | t }}</span>
+      <span>{{ 'shared.ownerCreatedBy' | t }}</span>
+      <span>{{ 'shared.dateShared' | t }}</span>
       <button
         type="button"
         class="sort-cell sort-toggle"
@@ -116,10 +116,10 @@
       </button>
     </header>
 
-    <p class="status-text" *ngIf="loading">Loading shared resources...</p>
+    <p class="status-text" *ngIf="loading">{{ 'shared.loading' | t }}</p>
     <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
     <p class="status-text" *ngIf="!loading && !errorMessage && displayEntries.length === 0">
-      {{ entries.length === 0 ? 'No resources have been shared with you yet.' : 'No resources match the selected filters.' }}
+      {{ entries.length === 0 ? ('shared.empty' | t) : ('shared.emptyFiltered' | t) }}
     </p>
 
     <article class="shared-row" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
@@ -137,7 +137,7 @@
             (error)="onOwnerAvatarError($event, entry.ownerUserId)"
             alt=""
           />
-          <span>Owner: {{ entry.ownerUsername }}</span>
+          <span>{{ 'shared.owner' | t: { user: entry.ownerUsername } }}</span>
         </span>
         <span class="user-pill">
           <img
@@ -147,7 +147,7 @@
             (error)="onOwnerAvatarError($event, entry.createdByUserId)"
             alt=""
           />
-          <span>Created: {{ entry.createdByUsername }}</span>
+          <span>{{ 'shared.created' | t: { user: entry.createdByUsername } }}</span>
         </span>
       </span>
       <span>{{ formatDate(entry.dateSharedUnixMs) }}</span>
@@ -167,9 +167,9 @@
   (contextmenu)="$event.preventDefault()"
 >
   <button type="button" (click)="onOpenResourceClick($event)">
-    Open
+    {{ 'common.open' | t }}
   </button>
   <button type="button" (click)="onDownloadResourceClick($event)" [disabled]="isEntryDownloadDisabled">
-    Download
+    {{ 'common.download' | t }}
   </button>
 </section>

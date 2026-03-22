@@ -3,14 +3,16 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { finalize } from 'rxjs';
+import { TPipe } from './pipes/t.pipe';
 import { ApiErrorResponseDto } from './dto/api-error-response.dto';
 import { SetupInitializeRequestDto } from './dto/setup-initialize-request.dto';
+import { I18nService } from './services/i18n.service';
 import { SetupApiService } from './services/setup-api.service';
 import { ThemeService } from './services/theme.service';
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TPipe],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
@@ -21,6 +23,7 @@ export class App implements OnInit {
   errorMessage = '';
   successMessage = '';
   isDarkMode = false;
+  currentLanguage: 'en' | 'mn' = 'en';
 
   form = {
     admin: {
@@ -39,11 +42,13 @@ export class App implements OnInit {
 
   constructor(
     private readonly setupApiService: SetupApiService,
+    private readonly i18nService: I18nService,
     private readonly themeService: ThemeService,
     private readonly cdr: ChangeDetectorRef
   ) { }
 
   ngOnInit(): void {
+    this.currentLanguage = this.i18nService.initializeLanguage();
     this.isDarkMode = this.themeService.initializeTheme() === 'dark';
     this.onFriendlyLimitChange();
     this.loadSetupStatus();
@@ -51,6 +56,11 @@ export class App implements OnInit {
 
   toggleTheme(): void {
     this.isDarkMode = this.themeService.toggleTheme() === 'dark';
+  }
+
+  toggleLanguage(): void {
+    this.currentLanguage = this.i18nService.toggleLanguage();
+    this.cdr.detectChanges();
   }
 
   submit(): void {
@@ -102,7 +112,7 @@ export class App implements OnInit {
           this.cdr.detectChanges();
         },
         error: (error: unknown) => {
-          this.errorMessage = this.extractError(error, 'Setup initialization failed');
+          this.errorMessage = this.extractError(error, this.i18nService.t('error.initialize'));
           this.cdr.detectChanges();
         }
       });
@@ -120,7 +130,7 @@ export class App implements OnInit {
           this.cdr.detectChanges();
         },
         error: (error: unknown) => {
-          this.errorMessage = this.extractError(error, 'Failed to load setup status');
+          this.errorMessage = this.extractError(error, this.i18nService.t('error.status'));
           this.cdr.detectChanges();
         },
         complete: () => {
@@ -132,12 +142,12 @@ export class App implements OnInit {
 
   private validateClientInput(): string | null {
     if (this.form.admin.password !== this.form.admin.passwordConfirmation) {
-      return 'Password and confirmation must match.';
+      return this.i18nService.t('validation.passwordMismatch');
     }
 
     const rootPath = this.form.system.storageRootPath.trim();
     if (!rootPath.startsWith('/')) {
-      return 'Storage root path must be absolute.';
+      return this.i18nService.t('validation.rootPathAbsolute');
     }
 
     const totalLimitResult = this.resolveTotalLimitBytesFromForm();
@@ -184,7 +194,7 @@ export class App implements OnInit {
     if (friendlyRaw !== '' && friendlyBytes === null) {
       return {
         value: null,
-        error: 'Invalid size format. Use values like 500GB, 1.5TB, 800GiB, or input bytes.'
+        error: this.i18nService.t('validation.invalidSize')
       };
     }
 
@@ -192,14 +202,14 @@ export class App implements OnInit {
     if (bytesRaw !== '' && bytesValue === null) {
       return {
         value: null,
-        error: 'Bytes must be a positive integer.'
+        error: this.i18nService.t('validation.invalidBytes')
       };
     }
 
     if (friendlyBytes !== null && bytesValue !== null && friendlyBytes !== bytesValue) {
       return {
         value: null,
-        error: 'Friendly size and bytes input do not match.'
+        error: this.i18nService.t('validation.bytesMismatch')
       };
     }
 

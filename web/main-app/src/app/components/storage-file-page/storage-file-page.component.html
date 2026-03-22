@@ -1,54 +1,54 @@
 <section class="file-page">
   <header class="file-header">
     <div>
-      <h2>File Metadata</h2>
+      <h2>{{ 'fileMeta.title' | t }}</h2>
       <p *ngIf="metadata">{{ metadata.name }}</p>
     </div>
 
     <div class="header-actions">
-      <button type="button" (click)="backToStorage()">Back to storage</button>
+      <button type="button" (click)="backToStorage()">{{ 'fileMeta.backToStorage' | t }}</button>
       <button type="button" class="primary" (click)="openContainingFolder()" [disabled]="!metadata">
-        Open containing folder
+        {{ 'fileMeta.openContainingFolder' | t }}
       </button>
     </div>
   </header>
 
   <section class="file-card">
-    <p class="status-text" *ngIf="loading">Loading file metadata...</p>
+    <p class="status-text" *ngIf="loading">{{ 'fileMeta.loading' | t }}</p>
     <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
 
     <dl class="meta-grid" *ngIf="!loading && metadata">
-      <dt>Name</dt>
+      <dt>{{ 'fileMeta.name' | t }}</dt>
       <dd>{{ metadata.name }}</dd>
 
-      <dt>Path</dt>
+      <dt>{{ 'fileMeta.path' | t }}</dt>
       <dd>{{ metadata.path }}</dd>
 
-      <dt>Folder path</dt>
+      <dt>{{ 'fileMeta.folderPath' | t }}</dt>
       <dd>{{ metadata.folderPath }}</dd>
 
-      <dt>Owner</dt>
+      <dt>{{ 'fileMeta.owner' | t }}</dt>
       <dd>{{ metadata.ownerUsername }}</dd>
 
-      <dt>Your access</dt>
+      <dt>{{ 'fileMeta.access' | t }}</dt>
       <dd>{{ metadata.currentPrivilege }}</dd>
 
-      <dt>Size</dt>
+      <dt>{{ 'fileMeta.size' | t }}</dt>
       <dd>{{ formatSize(metadata.sizeBytes) }}</dd>
 
-      <dt>MIME type</dt>
+      <dt>{{ 'fileMeta.mimeType' | t }}</dt>
       <dd>{{ metadata.mimeType || '-' }}</dd>
 
-      <dt>Extension</dt>
+      <dt>{{ 'fileMeta.extension' | t }}</dt>
       <dd>{{ metadata.extension || '-' }}</dd>
 
-      <dt>Starred</dt>
-      <dd>{{ metadata.currentPrivilege === 'owner' ? (metadata.isStarred ? 'Yes' : 'No') : 'Not available for shared items' }}</dd>
+      <dt>{{ 'fileMeta.starred' | t }}</dt>
+      <dd>{{ metadata.currentPrivilege === 'owner' ? (metadata.isStarred ? ('fileMeta.starredYes' | t) : ('fileMeta.starredNo' | t)) : ('fileMeta.starredUnavailable' | t) }}</dd>
 
-      <dt>Created</dt>
+      <dt>{{ 'fileMeta.created' | t }}</dt>
       <dd>{{ formatDate(metadata.createdAtUnixMs) }}</dd>
 
-      <dt>Modified</dt>
+      <dt>{{ 'fileMeta.modified' | t }}</dt>
       <dd>{{ formatDate(metadata.modifiedAtUnixMs) }}</dd>
     </dl>
   </section>

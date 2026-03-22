@@ -7,12 +7,14 @@ import { finalize, Subscription } from 'rxjs';
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { SearchResourceEntryDto } from '../../dto/search-resource-entry.dto';
 import { SearchResourcesResponseDto } from '../../dto/search-resources-response.dto';
+import { TPipe } from '../../pipes/t.pipe';
 import { ClientSessionService } from '../../services/client-session.service';
+import { I18nService } from '../../services/i18n.service';
 import { StorageApiService } from '../../services/storage-api.service';
 
 @Component({
   selector: 'app-search-page',
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './search-page.component.html',
   styleUrl: './search-page.component.css'
 })
@@ -37,6 +39,7 @@ export class SearchPageComponent implements OnInit, OnDestroy {
     private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly sessionService: ClientSessionService,
+    private readonly i18nService: I18nService,
     private readonly storageApiService: StorageApiService,
     private readonly cdr: ChangeDetectorRef
   ) {}
@@ -179,7 +182,9 @@ export class SearchPageComponent implements OnInit, OnDestroy {
   }
 
   sourceLabel(entry: SearchResourceEntryDto): string {
-    return entry.sourceContext === 'shared' ? 'Shared with me' : 'My storage';
+    return this.i18nService.t(
+      entry.sourceContext === 'shared' ? 'search.source.shared' : 'search.source.storage'
+    );
   }
 
   private resetAndLoad(nextQuery: string): void {

@@ -2,64 +2,77 @@
   <header class="page-header">
     <section class="logo-panel">
       <h1>PCloud</h1>
-      <p>Admin Launch</p>
+      <p>{{ 'title.launch' | t }}</p>
     </section>
 
     <div class="header-actions">
       <button
         type="button"
+        class="lang-toggle"
+        [attr.aria-label]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        [title]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        (click)="toggleLanguage()"
+      >
+        <img
+          class="lang-toggle-icon"
+          [src]="currentLanguage === 'en' ? 'mongolian.png' : 'english.png'"
+          [alt]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        />
+      </button>
+      <button
+        type="button"
         class="theme-toggle"
-        [attr.aria-label]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-        [title]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+        [attr.aria-label]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)"
+        [title]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)"
         (click)="toggleTheme()"
       >
         <img
           class="theme-toggle-icon"
           [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
-          [alt]="isDarkMode ? 'Light mode icon' : 'Dark mode icon'"
+          [alt]="isDarkMode ? ('theme.lightIcon' | t) : ('theme.darkIcon' | t)"
         />
       </button>
     </div>
   </header>
 
   <section class="main-panel" *ngIf="loading">
-    <p>Checking setup status...</p>
+    <p>{{ 'status.checking' | t }}</p>
   </section>
 
   <section class="main-panel" *ngIf="!loading && isInitialized">
-    <h2>System Already Initialized</h2>
+    <h2>{{ 'status.initializedTitle' | t }}</h2>
     <p class="hint">
-      Initial setup is complete. This launch page is only used for first-time initialization.
+      {{ 'status.initializedBody' | t }}
     </p>
   </section>
 
   <form class="main-panel" *ngIf="!loading && !isInitialized" (ngSubmit)="submit()">
     <div class="columns">
       <section class="column">
-        <h2>Create the first admin account</h2>
+        <h2>{{ 'form.adminTitle' | t }}</h2>
 
         <label>
-          Username
+          {{ 'form.username' | t }}
           <input name="username" [(ngModel)]="form.admin.username" required />
         </label>
 
         <label>
-          Email
+          {{ 'form.email' | t }}
           <input name="email" type="email" [(ngModel)]="form.admin.email" required />
         </label>
 
         <label>
-          Full name
+          {{ 'form.fullName' | t }}
           <input name="fullName" [(ngModel)]="form.admin.fullName" required />
         </label>
 
         <label>
-          Password
+          {{ 'form.password' | t }}
           <input name="password" type="password" [(ngModel)]="form.admin.password" required />
         </label>
 
         <label>
-          Confirm password
+          {{ 'form.confirmPassword' | t }}
           <input
             name="passwordConfirmation"
             type="password"
@@ -70,10 +83,10 @@
       </section>
 
       <section class="column">
-        <h2>Select storage settings</h2>
+        <h2>{{ 'form.systemTitle' | t }}</h2>
 
         <label>
-          Storage root path
+          {{ 'form.storageRootPath' | t }}
           <input
             name="storageRootPath"
             [(ngModel)]="form.system.storageRootPath"
@@ -83,28 +96,28 @@
         </label>
 
         <label>
-          Total cloud limit (friendly)
+          {{ 'form.friendlyLimit' | t }}
           <input
             name="totalStorageLimitInput"
             type="text"
             [(ngModel)]="form.system.totalStorageLimitInput"
             (ngModelChange)="onFriendlyLimitChange()"
-            placeholder="500GB / 1.5TB / 800GiB"
+            [placeholder]="'form.friendlyLimitPlaceholder' | t"
           />
-          <span class="input-hint">You can type units like KB, MB, GB, TB, KiB, MiB, GiB.</span>
+          <span class="input-hint">{{ 'form.friendlyLimitHint' | t }}</span>
         </label>
 
         <label>
-          Total cloud limit (bytes)
+          {{ 'form.bytesLimit' | t }}
           <input
             name="totalStorageLimitBytes"
             type="text"
             inputmode="numeric"
             [(ngModel)]="form.system.totalStorageLimitBytes"
             (ngModelChange)="onBytesLimitChange()"
-            placeholder="500000000000"
+            [placeholder]="'form.bytesLimitPlaceholder' | t"
           />
-          <span class="input-hint">Edit bytes directly if you prefer exact value.</span>
+          <span class="input-hint">{{ 'form.bytesLimitHint' | t }}</span>
         </label>
       </section>
     </div>
@@ -114,7 +127,7 @@
 
     <footer class="action-panel">
       <button type="submit" [disabled]="submitting">
-        {{ submitting ? 'Initializing...' : 'Launch' }}
+        {{ submitting ? ('form.initializing' | t) : ('form.launch' | t) }}
       </button>
     </footer>
   </form>

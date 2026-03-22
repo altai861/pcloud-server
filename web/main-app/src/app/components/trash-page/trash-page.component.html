@@ -1,22 +1,22 @@
 <section class="trash-content">
   <header class="trash-header">
-    <h2>Trash</h2>
-    <p>Items here are soft-deleted. Permanent delete cannot be undone.</p>
+    <h2>{{ 'trash.title' | t }}</h2>
+    <p>{{ 'trash.subtitle' | t }}</p>
   </header>
 
   <section class="list-wrap">
     <header class="list-header">
-      <span>Name</span>
-      <span>Type</span>
-      <span>Deleted at</span>
-      <span>Size</span>
-      <span>Action</span>
+      <span>{{ 'trash.name' | t }}</span>
+      <span>{{ 'trash.type' | t }}</span>
+      <span>{{ 'trash.deletedAt' | t }}</span>
+      <span>{{ 'trash.size' | t }}</span>
+      <span>{{ 'trash.action' | t }}</span>
     </header>
 
-    <p class="status-text" *ngIf="trashLoading">Loading trash items...</p>
+    <p class="status-text" *ngIf="trashLoading">{{ 'trash.loading' | t }}</p>
     <p class="status-text error" *ngIf="trashErrorMessage">{{ trashErrorMessage }}</p>
     <p class="status-text" *ngIf="!trashLoading && !trashErrorMessage && entries.length === 0">
-      Trash is empty.
+      {{ 'trash.empty' | t }}
     </p>
 
     <article
@@ -30,7 +30,7 @@
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </span>
-      <span class="type-cell">{{ entry.entryType }}</span>
+      <span class="type-cell">{{ ('common.entryType.' + entry.entryType) | t }}</span>
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
       <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
@@ -41,7 +41,7 @@
 </section>
 
 <aside class="selection-indicator" *ngIf="selectedEntriesCount > 0">
-  {{ selectedEntriesCount }} selected
+  {{ 'trash.selected' | t: { count: selectedEntriesCount } }}
 </aside>
 
 <section
@@ -53,9 +53,9 @@
   (contextmenu)="$event.preventDefault()"
 >
   <button type="button" *ngIf="!isEntryMenuForMultiSelection" (click)="onRestoreEntry($event)">
-    Restore
+    {{ 'trash.restore' | t }}
   </button>
   <button type="button" class="danger" (click)="onPermanentDelete($event)">
-    {{ isEntryMenuForMultiSelection ? (isBulkDeleteInProgress ? 'Deleting...' : 'Delete selected permanently') : 'Delete permanently' }}
+    {{ isEntryMenuForMultiSelection ? (isBulkDeleteInProgress ? ('trash.deleting' | t) : ('trash.deleteSelectedPermanently' | t)) : ('trash.deletePermanently' | t) }}
   </button>
 </section>

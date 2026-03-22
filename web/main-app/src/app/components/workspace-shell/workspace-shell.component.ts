@@ -3,10 +3,12 @@ import { ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnIn
 import { FormsModule } from '@angular/forms';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
+import { TPipe } from '../../pipes/t.pipe';
 
 import { AuthUserDto } from '../../dto/auth-user.dto';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
+import { I18nService } from '../../services/i18n.service';
 import { ProfileImageService } from '../../services/profile-image.service';
 import { StorageSidebarAction, StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { ThemeService } from '../../services/theme.service';
@@ -14,7 +16,7 @@ import { WorkspaceSearchService } from '../../services/workspace-search.service'
 
 @Component({
   selector: 'app-workspace-shell',
-  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, RouterOutlet, TPipe],
   templateUrl: './workspace-shell.component.html',
   styleUrl: './workspace-shell.component.css'
 })
@@ -30,10 +32,12 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
   searchInput = '';
   isDarkMode = false;
   isNewMenuOpen = false;
+  currentLanguage: 'en' | 'mn' = 'en';
 
   constructor(
     private readonly authApiService: AuthApiService,
     private readonly sessionService: ClientSessionService,
+    private readonly i18nService: I18nService,
     private readonly profileImageService: ProfileImageService,
     private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly themeService: ThemeService,
@@ -44,6 +48,7 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.isDarkMode = this.themeService.getCurrentTheme() === 'dark';
+    this.currentLanguage = this.i18nService.getCurrentLanguage();
     this.profileImageSub = this.profileImageService.profileImageSrc$.subscribe((src) => {
       this.profileImageSrc = src;
       this.cdr.detectChanges();
@@ -88,6 +93,11 @@ export class WorkspaceShellComponent implements OnInit, OnDestroy {
 
   toggleTheme(): void {
     this.isDarkMode = this.themeService.toggleTheme() === 'dark';
+  }
+
+  toggleLanguage(): void {
+    this.currentLanguage = this.i18nService.toggleLanguage();
+    this.cdr.detectChanges();
   }
 
   toggleNewMenu(event: MouseEvent): void {

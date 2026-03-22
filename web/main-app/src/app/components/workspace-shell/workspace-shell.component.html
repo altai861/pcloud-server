@@ -9,20 +9,33 @@
         name="workspaceSearch"
         [ngModel]="searchInput"
         (ngModelChange)="onSearchChange($event)"
-        placeholder="Search in Storage"
+        [placeholder]="'header.searchPlaceholder' | t"
       />
     </form>
 
     <div class="header-actions">
-      <button type="button" class="theme-toggle"
-        [attr.aria-label]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-        [title]="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'" (click)="toggleTheme()">
-        <img class="theme-toggle-icon" [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
-          [alt]="isDarkMode ? 'Light mode icon' : 'Dark mode icon'" />
+      <button
+        type="button"
+        class="lang-toggle"
+        [attr.aria-label]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        [title]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        (click)="toggleLanguage()"
+      >
+        <img
+          class="lang-toggle-icon"
+          [src]="currentLanguage === 'en' ? 'mongolian.png' : 'english.png'"
+          [alt]="currentLanguage === 'en' ? ('lang.switchToMongolian' | t) : ('lang.switchToEnglish' | t)"
+        />
       </button>
-      <button type="button" title="Profile" (click)="onProfileClick()">
+      <button type="button" class="theme-toggle"
+        [attr.aria-label]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)"
+        [title]="isDarkMode ? ('theme.switchToLight' | t) : ('theme.switchToDark' | t)" (click)="toggleTheme()">
+        <img class="theme-toggle-icon" [src]="isDarkMode ? 'light-mode.png' : 'dark-mode.png'"
+          [alt]="isDarkMode ? ('theme.lightIcon' | t) : ('theme.darkIcon' | t)" />
+      </button>
+      <button type="button" [title]="'common.profile' | t" (click)="onProfileClick()">
         <img class="profile-avatar-icon" [class.default-avatar]="!profileImageSrc"
-          [src]="profileImageSrc ?? 'profile.png'" alt="Profile" />
+          [src]="profileImageSrc ?? 'profile.png'" [alt]="'common.profile' | t" />
       </button>
     </div>
   </header>
@@ -32,12 +45,12 @@
       <div class="new-menu-wrap">
         <button class="new-button" type="button" (click)="toggleNewMenu($event)">
           <img src="plus.png" alt="" />
-          <span>New</span>
+          <span>{{ 'sidebar.new' | t }}</span>
         </button>
 
         <section class="new-menu" *ngIf="isNewMenuOpen">
-          <button type="button" (click)="onUploadFileClick($event)">Upload file</button>
-          <button type="button" (click)="onCreateFolderClick($event)">Create folder</button>
+          <button type="button" (click)="onUploadFileClick($event)">{{ 'sidebar.uploadFile' | t }}</button>
+          <button type="button" (click)="onCreateFolderClick($event)">{{ 'sidebar.createFolder' | t }}</button>
         </section>
 
         <input #uploadFileInput type="file" multiple class="upload-file-input" (change)="onUploadFileSelected($event)" />
@@ -46,36 +59,35 @@
       <nav class="sidebar-nav">
         <a routerLink="/app/storage" routerLinkActive="active">
           <img src="storage.png" alt="" />
-          <span>Storage</span>
+          <span>{{ 'sidebar.storage' | t }}</span>
         </a>
         <a routerLink="/app/home" routerLinkActive="active">
           <img src="home.png" alt="" />
-          <span>Home</span>
+          <span>{{ 'sidebar.home' | t }}</span>
         </a>
         <a routerLink="/app/starred" routerLinkActive="active">
           <img src="starred.png" alt="" />
-          <span>Starred</span>
+          <span>{{ 'sidebar.starred' | t }}</span>
         </a>
         <a routerLink="/app/shared" routerLinkActive="active">
           <img src="shared.png" alt="" />
-          <span>Shared</span>
+          <span>{{ 'sidebar.shared' | t }}</span>
         </a>
         <a *ngIf="currentUser?.role === 'admin'" routerLink="/app/admin" routerLinkActive="active">
           <img src="admin.png" alt="" />
-          <span>Admin</span>
+          <span>{{ 'sidebar.admin' | t }}</span>
         </a>
       </nav>
 
       <div class="sidebar-footer">
         <a routerLink="/app/trash" routerLinkActive="active">
           <img src="trash.png" alt="" />
-          <span>Trash</span>
+          <span>{{ 'sidebar.trash' | t }}</span>
         </a>
 
         <section class="usage-card">
           <p>
-            {{ formatSize(currentUser?.storageUsedBytes ?? null) }} of
-            {{ formatSize(currentUser?.storageQuotaBytes ?? null) }} used
+            {{ 'sidebar.storageUsage' | t: { used: formatSize(currentUser?.storageUsedBytes ?? null), quota: formatSize(currentUser?.storageQuotaBytes ?? null) } }}
           </p>
         </section>
       </div>

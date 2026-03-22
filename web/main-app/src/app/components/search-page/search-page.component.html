@@ -1,24 +1,24 @@
 <section class="search-content">
   <header class="search-header">
-    <h2>Search</h2>
-    <p *ngIf="query.length > 0">Results for "{{ query }}"</p>
-    <p *ngIf="query.length === 0">Enter a keyword in the header search bar and press Enter.</p>
+    <h2>{{ 'search.title' | t }}</h2>
+    <p *ngIf="query.length > 0">{{ 'search.resultsFor' | t: { query: query } }}</p>
+    <p *ngIf="query.length === 0">{{ 'search.enterHint' | t }}</p>
   </header>
 
   <section class="search-list-wrap" *ngIf="query.length > 0">
     <header class="search-list-header">
-      <span>Name</span>
-      <span>Location</span>
-      <span>Owner / Created by</span>
-      <span>Updated</span>
-      <span>Size</span>
-      <span>Actions</span>
+      <span>{{ 'search.name' | t }}</span>
+      <span>{{ 'search.location' | t }}</span>
+      <span>{{ 'search.ownerCreatedBy' | t }}</span>
+      <span>{{ 'search.updated' | t }}</span>
+      <span>{{ 'search.size' | t }}</span>
+      <span>{{ 'search.actions' | t }}</span>
     </header>
 
-    <p class="status-text" *ngIf="loading">Searching resources...</p>
+    <p class="status-text" *ngIf="loading">{{ 'search.loading' | t }}</p>
     <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
     <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
-      No resources matched your search.
+      {{ 'search.empty' | t }}
     </p>
 
     <article class="search-row" *ngFor="let entry of entries">
@@ -43,22 +43,22 @@
           />
           <span>{{ entry.ownerUsername }}</span>
         </span>
-        <span class="created-by">Created by {{ entry.createdByUsername }}</span>
+        <span class="created-by">{{ 'search.createdBy' | t: { user: entry.createdByUsername } }}</span>
       </span>
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
 
       <span class="action-cell">
-        <button type="button" class="subtle" (click)="goToLocation(entry)">Go to location</button>
-        <button type="button" class="subtle" (click)="openResource(entry)">Open</button>
+        <button type="button" class="subtle" (click)="goToLocation(entry)">{{ 'search.goToLocation' | t }}</button>
+        <button type="button" class="subtle" (click)="openResource(entry)">{{ 'search.open' | t }}</button>
       </span>
     </article>
   </section>
 
   <footer class="search-footer" *ngIf="query.length > 0 && !loading && !errorMessage && hasMore">
     <button type="button" class="load-more" [disabled]="loadingMore" (click)="loadMore()">
-      {{ loadingMore ? 'Loading...' : 'Load more' }}
+      {{ loadingMore ? ('search.loadingShort' | t) : ('common.loadMore' | t) }}
     </button>
   </footer>
 </section>

@@ -66,8 +66,10 @@
 .header-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.35rem;
 }
 
+.lang-toggle,
 .theme-toggle {
   width: 40px;
   height: 40px;
@@ -82,12 +84,14 @@
   transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
 
+.lang-toggle:hover,
 .theme-toggle:hover {
   border-color: var(--line-strong);
   transform: translateY(-1px);
   box-shadow: 0 5px 12px rgba(15, 23, 42, 0.1);
 }
 
+.lang-toggle-icon,
 .theme-toggle-icon {
   width: 23px;
   height: 23px;

@@ -4,13 +4,14 @@ import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { AuthUserDto } from '../../dto/auth-user.dto';
+import { TPipe } from '../../pipes/t.pipe';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
 import { ProfileImageService } from '../../services/profile-image.service';
 
 @Component({
   selector: 'app-workspace-profile',
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './workspace-profile.component.html',
   styleUrl: './workspace-profile.component.css'
 })

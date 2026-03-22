@@ -8,12 +8,13 @@ import { finalize, timeout } from 'rxjs';
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { LoginRequestDto } from '../../dto/login-request.dto';
 import { LoginFormModel } from '../../models/login-form.model';
+import { TPipe } from '../../pipes/t.pipe';
 import { AuthApiService } from '../../services/auth-api.service';
 import { ClientSessionService } from '../../services/client-session.service';
 
 @Component({
   selector: 'app-login-page',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TPipe],
   templateUrl: './login-page.component.html',
   styleUrl: './login-page.component.css'
 })

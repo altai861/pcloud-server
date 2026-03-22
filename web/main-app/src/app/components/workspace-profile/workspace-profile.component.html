@@ -1,5 +1,5 @@
 <section class="profile-wrap">
-  <p class="status" *ngIf="loading">Loading profile...</p>
+  <p class="status" *ngIf="loading">{{ 'profile.loading' | t }}</p>
   <p class="status error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
 
   <article class="profile-card" *ngIf="!loading && !errorMessage && currentUser">
@@ -7,7 +7,7 @@
       <img
         [class.default-avatar]="!profileImageSrc"
         [src]="profileImageSrc ?? 'profile.png'"
-        alt="Profile"
+        [alt]="'common.profile' | t"
       />
       <div>
         <h2>{{ currentUser.fullName }}</h2>
@@ -17,21 +17,21 @@
 
     <dl>
       <div>
-        <dt>Role</dt>
+        <dt>{{ 'profile.role' | t }}</dt>
         <dd>{{ currentUser.role }}</dd>
       </div>
       <div>
-        <dt>Storage used</dt>
+        <dt>{{ 'profile.storageUsed' | t }}</dt>
         <dd>{{ formatSize(currentUser.storageUsedBytes) }}</dd>
       </div>
       <div>
-        <dt>Storage quota</dt>
+        <dt>{{ 'profile.storageQuota' | t }}</dt>
         <dd>{{ formatSize(currentUser.storageQuotaBytes) }}</dd>
       </div>
     </dl>
 
     <section class="upload-section">
-      <label for="profileImageInput">Profile image</label>
+      <label for="profileImageInput">{{ 'profile.image' | t }}</label>
       <input
         id="profileImageInput"
         type="file"
@@ -43,6 +43,6 @@
       <p class="status success" *ngIf="imageSuccessMessage">{{ imageSuccessMessage }}</p>
     </section>
 
-    <button type="button" (click)="signOut()">Sign out</button>
+    <button type="button" (click)="signOut()">{{ 'profile.signOut' | t }}</button>
   </article>
 </section>

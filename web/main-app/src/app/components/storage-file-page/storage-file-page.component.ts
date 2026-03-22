@@ -5,13 +5,14 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
+import { TPipe } from '../../pipes/t.pipe';
 import { StorageFileMetadataDto } from '../../dto/storage-file-metadata.dto';
 import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 
 @Component({
   selector: 'app-storage-file-page',
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './storage-file-page.component.html',
   styleUrl: './storage-file-page.component.css'
 })

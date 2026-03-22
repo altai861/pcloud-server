@@ -7,6 +7,7 @@ import { debounceTime, distinctUntilChanged, finalize, firstValueFrom, Subscript
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
 import { StorageEntryDto } from '../../dto/storage-entry.dto';
 import { StorageListResponseDto } from '../../dto/storage-list-response.dto';
+import { TPipe } from '../../pipes/t.pipe';
 import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 import { StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
@@ -14,7 +15,7 @@ import { WorkspaceSearchService } from '../../services/workspace-search.service'
 
 @Component({
   selector: 'app-trash-page',
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './trash-page.component.html',
   styleUrl: './trash-page.component.css'
 })

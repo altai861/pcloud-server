@@ -4,11 +4,12 @@ import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { RecentStorageEntryModel } from '../../models/recent-storage-entry.model';
+import { TPipe } from '../../pipes/t.pipe';
 import { RecentEntriesService } from '../../services/recent-entries.service';
 
 @Component({
   selector: 'app-home-page',
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, TPipe],
   templateUrl: './home-page.component.html',
   styleUrl: './home-page.component.css'
 })

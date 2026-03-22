@@ -1,22 +1,22 @@
 <section class="starred-content">
   <header class="starred-header">
-    <h2>Starred</h2>
-    <p>Files and folders you marked with a star.</p>
+    <h2>{{ 'starred.title' | t }}</h2>
+    <p>{{ 'starred.subtitle' | t }}</p>
   </header>
 
   <section class="list-wrap">
     <header class="list-header">
-      <span>Name</span>
-      <span>Type</span>
-      <span>Modified</span>
-      <span>Size</span>
-      <span>Action</span>
+      <span>{{ 'starred.name' | t }}</span>
+      <span>{{ 'starred.type' | t }}</span>
+      <span>{{ 'starred.modified' | t }}</span>
+      <span>{{ 'starred.size' | t }}</span>
+      <span>{{ 'starred.action' | t }}</span>
     </header>
 
-    <p class="status-text" *ngIf="loading">Loading starred items...</p>
+    <p class="status-text" *ngIf="loading">{{ 'starred.loading' | t }}</p>
     <p class="status-text error" *ngIf="errorMessage">{{ errorMessage }}</p>
     <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
-      No starred items yet.
+      {{ 'starred.empty' | t }}
     </p>
 
     <article
@@ -29,8 +29,8 @@
         <button
           type="button"
           class="star-toggle"
-          aria-label="Remove star"
-          title="Remove star"
+          [attr.aria-label]="'starred.removeStar' | t"
+          [title]="'starred.removeStar' | t"
           (click)="onUnstarClick($event, entry)"
         >
           <img class="star-icon" src="star-filled.png" alt="" />
@@ -40,7 +40,7 @@
           <span class="resource-path">{{ entry.path }}</span>
         </span>
       </span>
-      <span class="type-cell">{{ entry.entryType }}</span>
+      <span class="type-cell">{{ ('common.entryType.' + entry.entryType) | t }}</span>
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
       <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
@@ -59,9 +59,9 @@
   (contextmenu)="$event.preventDefault()"
 >
   <button type="button" (click)="openEntryInStorage($event)">
-    Open in Storage
+    {{ 'starred.openInStorage' | t }}
   </button>
   <button type="button" (click)="onUnstarFromMenu($event)">
-    Remove star
+    {{ 'starred.removeStar' | t }}
   </button>
 </section>
