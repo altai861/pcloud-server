@@ -11,10 +11,21 @@ use crate::{
 use axum::{
     Json,
     body::Body,
-    extract::{Multipart, State},
-    http::{HeaderMap, header},
+    extract::{Multipart, Query, State},
+    http::{
+        HeaderMap,
+        header::{self, AUTHORIZATION},
+    },
     response::Response,
 };
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserProfileImageRequest {
+    pub user_id: i64,
+    pub access_token: Option<String>,
+}
 
 pub async fn login(
     State(state): State<AppState>,
@@ -97,6 +108,33 @@ pub async fn profile_image(
 ) -> ApiResult<Response> {
     let current = service::authenticate_headers(&state.pool, &headers).await?;
     let (bytes, content_type) = service::read_profile_image(&state.pool, &current).await?;
+
+    Ok(Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::from(bytes))
+        .map_err(|_| {
+            crate::error::ApiError::internal_with_context("Failed to build image response")
+        })?)
+}
+
+pub async fn user_profile_image(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<UserProfileImageRequest>,
+) -> ApiResult<Response> {
+    if headers.get(AUTHORIZATION).is_some() {
+        let _ = service::authenticate_headers(&state.pool, &headers).await?;
+    } else if let Some(token) = query.access_token.as_deref() {
+        let _ = service::authenticate_access_token(&state.pool, token).await?;
+    } else {
+        return Err(crate::error::ApiError::Unauthorized(
+            "Missing access token".to_owned(),
+        ));
+    }
+
+    let (bytes, content_type) =
+        service::read_user_profile_image(&state.pool, query.user_id).await?;
 
     Ok(Response::builder()
         .status(200)

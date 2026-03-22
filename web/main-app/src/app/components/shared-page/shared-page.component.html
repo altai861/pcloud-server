@@ -1,4 +1,57 @@
-<section class="page-wrap">
-  <h2>Shared</h2>
-  <p>Items shared with you and by you will appear here.</p>
+<section class="shared-content">
+  <section class="shared-list-wrap">
+    <header class="shared-list-header">
+      <span>Name</span>
+      <span>Owner</span>
+      <span>Date shared</span>
+      <span class="sort-cell">
+        <img src="sort.png" alt="" />
+        <span>Sort</span>
+      </span>
+    </header>
+
+    <p class="status-text" *ngIf="loading">Loading shared resources...</p>
+    <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
+    <p class="status-text" *ngIf="!loading && !errorMessage && entries.length === 0">
+      No resources have been shared with you yet.
+    </p>
+
+    <article class="shared-row" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
+      <button class="name-cell" type="button" (click)="openEntry(entry)">
+        <img [src]="entry.resourceType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <span>{{ entry.name }}</span>
+      </button>
+
+      <span class="owner-cell">
+        <img
+          class="owner-avatar"
+          [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
+          [src]="ownerAvatarSrc(entry.ownerUserId)"
+          (error)="onOwnerAvatarError($event, entry.ownerUserId)"
+          alt=""
+        />
+        <span>{{ entry.ownerUsername }}</span>
+      </span>
+      <span>{{ formatDate(entry.dateSharedUnixMs) }}</span>
+      <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
+        <img src="three-vertical-dots.png" alt="More" />
+      </button>
+    </article>
+  </section>
+</section>
+
+<section
+  class="entry-context-menu"
+  *ngIf="isEntryMenuOpen"
+  [style.left.px]="entryMenuX"
+  [style.top.px]="entryMenuY"
+  (click)="$event.stopPropagation()"
+  (contextmenu)="$event.preventDefault()"
+>
+  <button type="button" (click)="onOpenResourceClick($event)">
+    Open
+  </button>
+  <button type="button" (click)="onDownloadResourceClick($event)" [disabled]="isEntryDownloadDisabled">
+    Download
+  </button>
 </section>

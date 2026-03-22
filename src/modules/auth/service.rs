@@ -284,6 +284,24 @@ pub async fn read_profile_image(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
 ) -> Result<(Vec<u8>, String), ApiError> {
+    read_profile_image_by_user_id(pool, current_user.user.id).await
+}
+
+pub async fn read_user_profile_image(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<(Vec<u8>, String), ApiError> {
+    if user_id <= 0 {
+        return Err(ApiError::BadRequest("Invalid user id".to_owned()));
+    }
+
+    read_profile_image_by_user_id(pool, user_id).await
+}
+
+async fn read_profile_image_by_user_id(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<(Vec<u8>, String), ApiError> {
     let metadata = sqlx::query_as::<_, UserProfileImageRow>(
         r#"
         SELECT profile_image_rel_path, profile_image_content_type
@@ -292,11 +310,11 @@ pub async fn read_profile_image(
         LIMIT 1
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(user_id)
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to load profile image metadata"))?
-    .ok_or_else(|| ApiError::Unauthorized("Invalid user session".to_owned()))?;
+    .ok_or_else(|| ApiError::BadRequest("Requested user does not exist".to_owned()))?;
 
     let relative_path = metadata
         .profile_image_rel_path

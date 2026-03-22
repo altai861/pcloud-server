@@ -14,18 +14,21 @@ const MAX_UPLOAD_SIZE_BYTES: i64 = 5 * 1024 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct StorageListQuery {
     pub path: Option<String>,
+    pub folder_id: Option<i64>,
     pub search: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateFolderInput {
     pub parent_path: Option<String>,
+    pub parent_folder_id: Option<i64>,
     pub name: String,
 }
 
 #[derive(Debug)]
 pub struct UploadFileInput {
     pub folder_path: Option<String>,
+    pub folder_id: Option<i64>,
     pub file_name: String,
     pub content_type: Option<String>,
     pub temp_file_path: PathBuf,
@@ -34,9 +37,37 @@ pub struct UploadFileInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct DownloadFileQuery {
+    pub path: Option<String>,
+    pub file_id: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RenameStorageInput {
     pub path: Option<String>,
+    pub resource_id: Option<i64>,
     pub new_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SharePermissionInput {
+    pub resource_type: StorageEntryKind,
+    pub resource_id: i64,
+    pub target_user_id: i64,
+    pub privilege_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoveSharePermissionInput {
+    pub resource_type: StorageEntryKind,
+    pub resource_id: i64,
+    pub target_user_id: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SharePermissionsQuery {
+    pub resource_type: StorageEntryKind,
+    pub resource_id: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,13 +93,18 @@ struct SystemStorageRow {
 struct FolderRow {
     id: i64,
     path: String,
+    parent_folder_id: Option<i64>,
+    owner_user_id: i64,
 }
 
 #[derive(Debug, FromRow)]
 struct StorageEntryRow {
+    id: i64,
     name: String,
     path: String,
     entry_type: String,
+    owner_user_id: i64,
+    owner_username: String,
     is_starred: bool,
     size_bytes: Option<i64>,
     modified_at_unix_ms: i64,
@@ -78,6 +114,7 @@ struct StorageEntryRow {
 struct FolderMetadataRow {
     name: String,
     path: String,
+    owner_username: String,
     created_at_unix_ms: i64,
     modified_at_unix_ms: i64,
     folder_count: i64,
@@ -90,6 +127,24 @@ struct DownloadFileRow {
     mime_type: Option<String>,
     original_file_name: Option<String>,
     name: String,
+}
+
+#[derive(Debug, FromRow)]
+struct FileMetadataRow {
+    id: i64,
+    folder_id: i64,
+    folder_path: String,
+    owner_user_id: i64,
+    owner_username: String,
+    name: String,
+    path: String,
+    size_bytes: i64,
+    mime_type: Option<String>,
+    extension: Option<String>,
+    is_starred: bool,
+    access_rank: i32,
+    created_at_unix_ms: i64,
+    modified_at_unix_ms: i64,
 }
 
 #[derive(Debug, FromRow)]
@@ -120,6 +175,7 @@ struct TrashedFolderRestoreRow {
 #[derive(Debug, FromRow)]
 struct RenameFileRow {
     id: i64,
+    owner_user_id: i64,
     name: String,
     is_starred: bool,
     storage_path: String,
@@ -128,18 +184,98 @@ struct RenameFileRow {
 }
 
 #[derive(Debug, FromRow)]
+struct RenameFileAccessRow {
+    id: i64,
+    owner_user_id: i64,
+    name: String,
+    is_starred: bool,
+    storage_path: String,
+    folder_id: i64,
+    folder_path: String,
+    access_rank: i32,
+}
+
+#[derive(Debug, FromRow)]
 struct RenameFolderRow {
     id: i64,
+    owner_user_id: i64,
     name: String,
     is_starred: bool,
     path: String,
     parent_folder_id: Option<i64>,
 }
 
+#[derive(Debug, FromRow)]
+struct SharedResourceRow {
+    resource_type: String,
+    resource_id: i64,
+    name: String,
+    path: String,
+    owner_user_id: i64,
+    owner_username: String,
+    privilege_type: String,
+    date_shared_unix_ms: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct SharedPermissionRow {
+    user_id: i64,
+    username: String,
+    full_name: String,
+    privilege_type: String,
+    created_at_unix_ms: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ShareableUserRow {
+    user_id: i64,
+    username: String,
+    full_name: String,
+}
+
+#[derive(Debug, FromRow)]
+struct ResourceOwnerRow {
+    owner_user_id: i64,
+    resource_name: String,
+}
+
+#[derive(Debug, FromRow)]
+struct FolderAccessRow {
+    id: i64,
+    path: String,
+    parent_folder_id: Option<i64>,
+    owner_user_id: i64,
+    access_rank: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessLevel {
+    Owner,
+    Editor,
+    Viewer,
+}
+
+impl AccessLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Editor => "editor",
+            Self::Viewer => "viewer",
+        }
+    }
+
+    fn is_editor(self) -> bool {
+        matches!(self, Self::Owner | Self::Editor)
+    }
+}
+
 #[derive(Debug)]
 pub struct StorageListResult {
     pub current_path: String,
+    pub current_folder_id: Option<i64>,
+    pub parent_folder_id: Option<i64>,
     pub parent_path: Option<String>,
+    pub current_privilege: String,
     pub entries: Vec<StorageEntryDto>,
     pub total_storage_limit_bytes: Option<i64>,
     pub total_storage_used_bytes: i64,
@@ -151,6 +287,8 @@ pub struct StorageListResult {
 pub struct StorageFolderMetadataResult {
     pub name: String,
     pub path: String,
+    pub owner_username: String,
+    pub current_privilege: String,
     pub created_at_unix_ms: i64,
     pub modified_at_unix_ms: i64,
     pub folder_count: i64,
@@ -166,6 +304,24 @@ pub struct DownloadFileResult {
 }
 
 #[derive(Debug)]
+pub struct StorageFileMetadataResult {
+    pub id: i64,
+    pub folder_id: i64,
+    pub folder_path: String,
+    pub owner_user_id: i64,
+    pub owner_username: String,
+    pub current_privilege: String,
+    pub name: String,
+    pub path: String,
+    pub size_bytes: i64,
+    pub mime_type: Option<String>,
+    pub extension: Option<String>,
+    pub is_starred: bool,
+    pub created_at_unix_ms: i64,
+    pub modified_at_unix_ms: i64,
+}
+
+#[derive(Debug)]
 pub struct DeletedStorageResult {
     pub deleted_path: String,
     pub entry_type: String,
@@ -178,6 +334,42 @@ pub struct RestoredStorageResult {
     pub entry_type: String,
 }
 
+#[derive(Debug)]
+pub struct SharedResourceEntryResult {
+    pub resource_type: String,
+    pub resource_id: i64,
+    pub name: String,
+    pub path: String,
+    pub owner_user_id: i64,
+    pub owner_username: String,
+    pub privilege_type: String,
+    pub date_shared_unix_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct SharedPermissionsResult {
+    pub resource_type: String,
+    pub resource_id: i64,
+    pub resource_name: String,
+    pub entries: Vec<SharedPermissionTargetResult>,
+}
+
+#[derive(Debug)]
+pub struct SharedPermissionTargetResult {
+    pub user_id: i64,
+    pub username: String,
+    pub full_name: String,
+    pub privilege_type: String,
+    pub created_at_unix_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct ShareableUserResult {
+    pub user_id: i64,
+    pub username: String,
+    pub full_name: String,
+}
+
 pub async fn list_user_storage(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
@@ -186,8 +378,15 @@ pub async fn list_user_storage(
     let settings = load_system_storage_settings(pool).await?;
     let total_storage_used_bytes = load_total_storage_usage(pool).await?;
 
-    let requested_path = normalize_api_path(query.path.as_deref().unwrap_or("/"))?;
-    let current_folder = load_requested_folder(pool, current_user.user.id, &requested_path).await?;
+    let (current_folder, current_access) = if let Some(folder_id) = query.folder_id {
+        load_accessible_folder_by_id(pool, current_user.user.id, folder_id).await?
+    } else {
+        let requested_path = normalize_api_path(query.path.as_deref().unwrap_or("/"))?;
+        (
+            load_requested_folder(pool, current_user.user.id, &requested_path).await?,
+            AccessLevel::Owner,
+        )
+    };
 
     let search = query
         .search
@@ -195,21 +394,18 @@ pub async fn list_user_storage(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let storage_entries = load_storage_entries(
-        pool,
-        current_user.user.id,
-        current_folder.id,
-        &current_folder.path,
-        search,
-    )
-    .await?;
+    let storage_entries =
+        load_storage_entries(pool, current_folder.id, &current_folder.path, search).await?;
 
     let entries = storage_entries
         .into_iter()
         .map(|entry| StorageEntryDto {
+            id: entry.id,
             name: entry.name,
             path: normalize_db_path(&entry.path),
             entry_type: entry.entry_type,
+            owner_user_id: entry.owner_user_id,
+            owner_username: entry.owner_username,
             is_starred: entry.is_starred,
             size_bytes: entry.size_bytes,
             modified_at_unix_ms: Some(entry.modified_at_unix_ms),
@@ -220,7 +416,10 @@ pub async fn list_user_storage(
 
     Ok(StorageListResult {
         current_path: current_path.clone(),
+        current_folder_id: Some(current_folder.id),
+        parent_folder_id: current_folder.parent_folder_id,
         parent_path: parent_api_path(&current_path),
+        current_privilege: current_access.as_str().to_owned(),
         entries,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
@@ -251,7 +450,10 @@ pub async fn list_user_trash(
 
     Ok(StorageListResult {
         current_path: "/trash".to_owned(),
+        current_folder_id: None,
+        parent_folder_id: None,
         parent_path: None,
+        current_privilege: "owner".to_owned(),
         entries,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
@@ -282,7 +484,10 @@ pub async fn list_user_starred(
 
     Ok(StorageListResult {
         current_path: "/starred".to_owned(),
+        current_folder_id: None,
+        parent_folder_id: None,
         parent_path: None,
+        current_privilege: "owner".to_owned(),
         entries,
         total_storage_limit_bytes: settings.total_storage_limit_bytes,
         total_storage_used_bytes,
@@ -291,43 +496,473 @@ pub async fn list_user_starred(
     })
 }
 
+pub async fn list_shared_with_user(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    search: Option<String>,
+) -> Result<Vec<SharedResourceEntryResult>, ApiError> {
+    let search = search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let rows = sqlx::query_as::<_, SharedResourceRow>(
+        r#"
+        SELECT
+            entries.resource_type,
+            entries.resource_id,
+            entries.name,
+            entries.path,
+            entries.owner_user_id,
+            entries.owner_username,
+            entries.privilege_type,
+            entries.date_shared_unix_ms
+        FROM (
+            SELECT
+                'folder'::TEXT AS resource_type,
+                folder.id AS resource_id,
+                folder.name,
+                folder.path,
+                folder.owner_user_id,
+                owner_user.username AS owner_username,
+                CASE
+                    WHEN BOOL_OR(lower(folder_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
+                    ELSE 'viewer'
+                END AS privilege_type,
+                (EXTRACT(EPOCH FROM MAX(folder_perm.created_at)) * 1000)::BIGINT AS date_shared_unix_ms
+            FROM folder_permissions folder_perm
+            INNER JOIN folders folder
+                ON folder.id = folder_perm.folder_id
+            INNER JOIN users owner_user
+                ON owner_user.id = folder.owner_user_id
+            WHERE folder_perm.user_id = $1
+              AND folder.owner_user_id <> $1
+              AND folder.is_deleted = false
+              AND (
+                  $2::TEXT IS NULL
+                  OR folder.name ILIKE '%' || $2 || '%'
+                  OR owner_user.username ILIKE '%' || $2 || '%'
+              )
+            GROUP BY folder.id, folder.name, folder.path, folder.owner_user_id, owner_user.username
+
+            UNION ALL
+
+            SELECT
+                'file'::TEXT AS resource_type,
+                file_row.id AS resource_id,
+                file_row.name,
+                CASE
+                    WHEN folder.path = '/' THEN '/' || file_row.name
+                    ELSE folder.path || '/' || file_row.name
+                END AS path,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
+                CASE
+                    WHEN BOOL_OR(lower(file_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
+                    ELSE 'viewer'
+                END AS privilege_type,
+                (EXTRACT(EPOCH FROM MAX(file_perm.created_at)) * 1000)::BIGINT AS date_shared_unix_ms
+            FROM file_permissions file_perm
+            INNER JOIN files file_row
+                ON file_row.id = file_perm.file_id
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
+            WHERE file_perm.user_id = $1
+              AND file_row.owner_user_id <> $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND (
+                  $2::TEXT IS NULL
+                  OR file_row.name ILIKE '%' || $2 || '%'
+                  OR owner_user.username ILIKE '%' || $2 || '%'
+              )
+            GROUP BY file_row.id, file_row.name, folder.path, file_row.owner_user_id, owner_user.username
+        ) entries
+        ORDER BY entries.date_shared_unix_ms DESC, LOWER(entries.name), entries.name
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(search)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load shared resources listing"))?;
+
+    let entries: Vec<SharedResourceEntryResult> = rows
+        .into_iter()
+        .map(|row| SharedResourceEntryResult {
+            resource_type: row.resource_type,
+            resource_id: row.resource_id,
+            name: row.name,
+            path: normalize_db_path(&row.path),
+            owner_user_id: row.owner_user_id,
+            owner_username: row.owner_username,
+            privilege_type: row.privilege_type,
+            date_shared_unix_ms: row.date_shared_unix_ms,
+        })
+        .collect();
+
+    let shared_folder_roots: Vec<(i64, String)> = entries
+        .iter()
+        .filter(|entry| entry.resource_type == "folder")
+        .map(|entry| (entry.owner_user_id, entry.path.clone()))
+        .collect();
+
+    Ok(entries
+        .into_iter()
+        .filter(|entry| {
+            if entry.resource_type == "folder" {
+                return !shared_folder_roots.iter().any(|(owner_id, folder_path)| {
+                    *owner_id == entry.owner_user_id
+                        && *folder_path != entry.path
+                        && is_descendant_path(&entry.path, folder_path)
+                });
+            }
+
+            !shared_folder_roots.iter().any(|(owner_id, folder_path)| {
+                *owner_id == entry.owner_user_id && is_descendant_path(&entry.path, folder_path)
+            })
+        })
+        .collect())
+}
+
+pub async fn list_resource_permissions(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    query: SharePermissionsQuery,
+) -> Result<SharedPermissionsResult, ApiError> {
+    let owner = load_resource_owner(pool, query.resource_type, query.resource_id).await?;
+    if owner.owner_user_id != current_user.user.id {
+        return Err(ApiError::BadRequest(
+            "Only the resource owner can manage sharing".to_owned(),
+        ));
+    }
+
+    let rows = match query.resource_type {
+        StorageEntryKind::Folder => {
+            sqlx::query_as::<_, SharedPermissionRow>(
+                r#"
+                SELECT
+                    target_user.id AS user_id,
+                    target_user.username,
+                    target_user.full_name,
+                    CASE
+                        WHEN BOOL_OR(lower(folder_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
+                        ELSE 'viewer'
+                    END AS privilege_type,
+                    (EXTRACT(EPOCH FROM MAX(folder_perm.created_at)) * 1000)::BIGINT AS created_at_unix_ms
+                FROM folder_permissions folder_perm
+                INNER JOIN users target_user
+                    ON target_user.id = folder_perm.user_id
+                WHERE folder_perm.folder_id = $1
+                GROUP BY target_user.id, target_user.username, target_user.full_name
+                ORDER BY LOWER(target_user.username), target_user.username
+                "#,
+            )
+            .bind(query.resource_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|_| ApiError::internal_with_context("Failed to load folder permissions"))?
+        }
+        StorageEntryKind::File => {
+            sqlx::query_as::<_, SharedPermissionRow>(
+                r#"
+                SELECT
+                    target_user.id AS user_id,
+                    target_user.username,
+                    target_user.full_name,
+                    CASE
+                        WHEN BOOL_OR(lower(file_perm.privilege_type) IN ('editor', 'edit')) THEN 'editor'
+                        ELSE 'viewer'
+                    END AS privilege_type,
+                    (EXTRACT(EPOCH FROM MAX(file_perm.created_at)) * 1000)::BIGINT AS created_at_unix_ms
+                FROM file_permissions file_perm
+                INNER JOIN users target_user
+                    ON target_user.id = file_perm.user_id
+                WHERE file_perm.file_id = $1
+                GROUP BY target_user.id, target_user.username, target_user.full_name
+                ORDER BY LOWER(target_user.username), target_user.username
+                "#,
+            )
+            .bind(query.resource_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|_| ApiError::internal_with_context("Failed to load file permissions"))?
+        }
+    };
+
+    Ok(SharedPermissionsResult {
+        resource_type: match query.resource_type {
+            StorageEntryKind::Folder => "folder".to_owned(),
+            StorageEntryKind::File => "file".to_owned(),
+        },
+        resource_id: query.resource_id,
+        resource_name: owner.resource_name,
+        entries: rows
+            .into_iter()
+            .map(|row| SharedPermissionTargetResult {
+                user_id: row.user_id,
+                username: row.username,
+                full_name: row.full_name,
+                privilege_type: row.privilege_type,
+                created_at_unix_ms: row.created_at_unix_ms,
+            })
+            .collect(),
+    })
+}
+
+pub async fn upsert_share_permission(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: SharePermissionInput,
+) -> Result<(), ApiError> {
+    let privilege = normalize_share_privilege(&input.privilege_type)?;
+    if input.target_user_id == current_user.user.id {
+        return Err(ApiError::BadRequest(
+            "You cannot grant permissions to yourself".to_owned(),
+        ));
+    }
+
+    let owner = load_resource_owner(pool, input.resource_type, input.resource_id).await?;
+    if owner.owner_user_id != current_user.user.id {
+        return Err(ApiError::BadRequest(
+            "Only the resource owner can manage sharing".to_owned(),
+        ));
+    }
+
+    let target_user_exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM users
+            WHERE id = $1
+              AND status = 'active'
+        )
+        "#,
+    )
+    .bind(input.target_user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to validate target user"))?;
+
+    if !target_user_exists {
+        return Err(ApiError::BadRequest(
+            "Target user does not exist".to_owned(),
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to start share update transaction"))?;
+
+    match input.resource_type {
+        StorageEntryKind::Folder => {
+            sqlx::query(
+                r#"
+                DELETE FROM folder_permissions
+                WHERE folder_id = $1
+                  AND user_id = $2
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage_write_error)?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO folder_permissions (folder_id, user_id, privilege_type, granted_by_user_id)
+                VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .bind(privilege)
+            .bind(current_user.user.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage_write_error)?;
+        }
+        StorageEntryKind::File => {
+            sqlx::query(
+                r#"
+                DELETE FROM file_permissions
+                WHERE file_id = $1
+                  AND user_id = $2
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage_write_error)?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO file_permissions (file_id, user_id, privilege_type, granted_by_user_id)
+                VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .bind(privilege)
+            .bind(current_user.user.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_storage_write_error)?;
+        }
+    }
+
+    tx.commit().await.map_err(|_| {
+        ApiError::internal_with_context("Failed to commit share update transaction")
+    })?;
+
+    Ok(())
+}
+
+pub async fn remove_share_permission(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: RemoveSharePermissionInput,
+) -> Result<(), ApiError> {
+    if input.target_user_id == current_user.user.id {
+        return Err(ApiError::BadRequest(
+            "You cannot remove your own owner permissions".to_owned(),
+        ));
+    }
+
+    let owner = load_resource_owner(pool, input.resource_type, input.resource_id).await?;
+    if owner.owner_user_id != current_user.user.id {
+        return Err(ApiError::BadRequest(
+            "Only the resource owner can manage sharing".to_owned(),
+        ));
+    }
+
+    match input.resource_type {
+        StorageEntryKind::Folder => {
+            sqlx::query(
+                r#"
+                DELETE FROM folder_permissions
+                WHERE folder_id = $1
+                  AND user_id = $2
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .execute(pool)
+            .await
+            .map_err(map_storage_write_error)?;
+        }
+        StorageEntryKind::File => {
+            sqlx::query(
+                r#"
+                DELETE FROM file_permissions
+                WHERE file_id = $1
+                  AND user_id = $2
+                "#,
+            )
+            .bind(input.resource_id)
+            .bind(input.target_user_id)
+            .execute(pool)
+            .await
+            .map_err(map_storage_write_error)?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn search_shareable_users(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    search: Option<String>,
+) -> Result<Vec<ShareableUserResult>, ApiError> {
+    let search = search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let rows = sqlx::query_as::<_, ShareableUserRow>(
+        r#"
+        SELECT
+            user_row.id AS user_id,
+            user_row.username,
+            user_row.full_name
+        FROM users user_row
+        WHERE user_row.status = 'active'
+          AND user_row.id <> $1
+          AND (
+              $2::TEXT IS NULL
+              OR user_row.username ILIKE '%' || $2 || '%'
+              OR user_row.full_name ILIKE '%' || $2 || '%'
+          )
+        ORDER BY LOWER(user_row.username), user_row.username
+        LIMIT 20
+        "#,
+    )
+    .bind(current_user.user.id)
+    .bind(search)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to search users for sharing"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| ShareableUserResult {
+            user_id: row.user_id,
+            username: row.username,
+            full_name: row.full_name,
+        })
+        .collect())
+}
+
 pub async fn get_folder_metadata(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
     path: Option<String>,
+    folder_id: Option<i64>,
 ) -> Result<StorageFolderMetadataResult, ApiError> {
-    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
-    let current_folder = load_requested_folder(pool, current_user.user.id, &requested_path).await?;
+    let (current_folder, current_access) = if let Some(folder_id) = folder_id {
+        load_accessible_folder_by_id(pool, current_user.user.id, folder_id).await?
+    } else {
+        let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
+        (
+            load_requested_folder(pool, current_user.user.id, &requested_path).await?,
+            AccessLevel::Owner,
+        )
+    };
 
     let metadata = sqlx::query_as::<_, FolderMetadataRow>(
         r#"
         SELECT
             folder.name,
             folder.path,
+            owner_user.username AS owner_username,
             (EXTRACT(EPOCH FROM folder.created_at) * 1000)::BIGINT AS created_at_unix_ms,
             (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms,
             (
                 SELECT COUNT(*)::BIGINT
                 FROM folders child
-                WHERE child.owner_user_id = $1
-                  AND child.parent_folder_id = folder.id
+                WHERE child.parent_folder_id = folder.id
                   AND child.is_deleted = false
             ) AS folder_count,
             (
                 SELECT COUNT(*)::BIGINT
                 FROM files file_row
-                WHERE file_row.owner_user_id = $1
-                  AND file_row.folder_id = folder.id
+                WHERE file_row.folder_id = folder.id
                   AND file_row.is_deleted = false
             ) AS file_count
         FROM folders folder
-        WHERE folder.owner_user_id = $1
-          AND folder.id = $2
+        INNER JOIN users owner_user
+            ON owner_user.id = folder.owner_user_id
+        WHERE folder.id = $1
           AND folder.is_deleted = false
         LIMIT 1
         "#,
     )
-    .bind(current_user.user.id)
     .bind(current_folder.id)
     .fetch_optional(pool)
     .await
@@ -343,6 +978,8 @@ pub async fn get_folder_metadata(
     Ok(StorageFolderMetadataResult {
         name: folder_name,
         path: normalize_db_path(&metadata.path),
+        owner_username: metadata.owner_username,
+        current_privilege: current_access.as_str().to_owned(),
         created_at_unix_ms: metadata.created_at_unix_ms,
         modified_at_unix_ms: metadata.modified_at_unix_ms,
         folder_count: metadata.folder_count,
@@ -351,49 +988,233 @@ pub async fn get_folder_metadata(
     })
 }
 
-pub async fn resolve_file_download(
+pub async fn get_file_metadata(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
-    path: Option<String>,
-) -> Result<DownloadFileResult, ApiError> {
-    let requested_path = normalize_api_path(path.as_deref().unwrap_or("/"))?;
-    if requested_path == "/" {
-        return Err(ApiError::BadRequest(
-            "Requested path must point to a file".to_owned(),
-        ));
-    }
-
-    let settings = load_system_storage_settings(pool).await?;
-
-    let file_row = sqlx::query_as::<_, DownloadFileRow>(
+    file_id: i64,
+) -> Result<StorageFileMetadataResult, ApiError> {
+    let file = sqlx::query_as::<_, FileMetadataRow>(
         r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_folder_id, owner_user_id
+            FROM folders
+            WHERE id = (
+                SELECT folder_id
+                FROM files
+                WHERE id = $1
+                LIMIT 1
+            )
+              AND is_deleted = false
+
+            UNION ALL
+
+            SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+            FROM folders parent
+            INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+            WHERE parent.is_deleted = false
+        )
         SELECT
-            file_row.storage_path,
+            file_row.id,
+            folder.id AS folder_id,
+            folder.path AS folder_path,
+            file_row.owner_user_id,
+            owner_user.username AS owner_username,
+            file_row.name,
+            CASE
+                WHEN folder.path = '/' THEN '/' || file_row.name
+                ELSE folder.path || '/' || file_row.name
+            END AS path,
+            file_row.size_bytes,
             file_row.mime_type,
-            file_row.original_file_name,
-            file_row.name
+            file_row.extension,
+            file_row.is_starred,
+            CASE
+                WHEN file_row.owner_user_id = $2 THEN 3
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM ancestors branch
+                    WHERE branch.owner_user_id = $2
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_permissions file_perm
+                    WHERE file_perm.file_id = file_row.id
+                      AND file_perm.user_id = $2
+                      AND lower(file_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_permissions file_perm
+                    WHERE file_perm.file_id = file_row.id
+                      AND file_perm.user_id = $2
+                      AND lower(file_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                ELSE 0
+            END AS access_rank,
+            (EXTRACT(EPOCH FROM file_row.created_at) * 1000)::BIGINT AS created_at_unix_ms,
+            (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         FROM files file_row
         INNER JOIN folders folder
             ON folder.id = file_row.folder_id
-        WHERE file_row.owner_user_id = $1
-          AND folder.owner_user_id = $1
+        INNER JOIN users owner_user
+            ON owner_user.id = file_row.owner_user_id
+        WHERE file_row.id = $1
           AND file_row.is_deleted = false
           AND folder.is_deleted = false
-          AND (
-              CASE
-                  WHEN folder.path = '/' THEN '/' || file_row.name
-                  ELSE folder.path || '/' || file_row.name
-              END
-          ) = $2
         LIMIT 1
         "#,
     )
+    .bind(file_id)
     .bind(current_user.user.id)
-    .bind(&requested_path)
     .fetch_optional(pool)
     .await
-    .map_err(|_| ApiError::internal_with_context("Failed to resolve file download path"))?
+    .map_err(|_| ApiError::internal_with_context("Failed to load file metadata"))?
     .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?;
+
+    let access = access_level_from_rank(file.access_rank).ok_or_else(|| {
+        ApiError::BadRequest("You do not have access to the requested file".to_owned())
+    })?;
+
+    Ok(StorageFileMetadataResult {
+        id: file.id,
+        folder_id: file.folder_id,
+        folder_path: normalize_db_path(&file.folder_path),
+        owner_user_id: file.owner_user_id,
+        owner_username: file.owner_username,
+        current_privilege: access.as_str().to_owned(),
+        name: file.name,
+        path: normalize_db_path(&file.path),
+        size_bytes: file.size_bytes,
+        mime_type: file.mime_type,
+        extension: file.extension,
+        is_starred: file.is_starred,
+        created_at_unix_ms: file.created_at_unix_ms,
+        modified_at_unix_ms: file.modified_at_unix_ms,
+    })
+}
+
+pub async fn resolve_file_download(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    query: DownloadFileQuery,
+) -> Result<DownloadFileResult, ApiError> {
+    let settings = load_system_storage_settings(pool).await?;
+
+    let file_row = if let Some(file_id) = query.file_id {
+        sqlx::query_as::<_, DownloadFileRow>(
+            r#"
+            WITH RECURSIVE ancestors AS (
+                SELECT id, parent_folder_id, owner_user_id
+                FROM folders
+                WHERE id = (
+                    SELECT folder_id
+                    FROM files
+                    WHERE id = $1
+                    LIMIT 1
+                )
+                  AND is_deleted = false
+
+                UNION ALL
+
+                SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+                FROM folders parent
+                INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+                WHERE parent.is_deleted = false
+            )
+            SELECT
+                file_row.storage_path,
+                file_row.mime_type,
+                file_row.original_file_name,
+                file_row.name
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            WHERE file_row.id = $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND (
+                    file_row.owner_user_id = $2
+                    OR EXISTS (
+                        SELECT 1
+                        FROM ancestors branch
+                        WHERE branch.owner_user_id = $2
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM file_permissions file_perm
+                        WHERE file_perm.file_id = file_row.id
+                          AND file_perm.user_id = $2
+                          AND lower(file_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM folder_permissions folder_perm
+                        INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                        WHERE folder_perm.user_id = $2
+                          AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                    )
+              )
+            LIMIT 1
+            "#,
+        )
+        .bind(file_id)
+        .bind(current_user.user.id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to resolve file download path"))?
+        .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?
+    } else {
+        let requested_path = normalize_api_path(query.path.as_deref().unwrap_or("/"))?;
+        if requested_path == "/" {
+            return Err(ApiError::BadRequest(
+                "Requested path must point to a file".to_owned(),
+            ));
+        }
+
+        sqlx::query_as::<_, DownloadFileRow>(
+            r#"
+            SELECT
+                file_row.storage_path,
+                file_row.mime_type,
+                file_row.original_file_name,
+                file_row.name
+            FROM files file_row
+            INNER JOIN folders folder
+                ON folder.id = file_row.folder_id
+            WHERE file_row.owner_user_id = $1
+              AND folder.owner_user_id = $1
+              AND file_row.is_deleted = false
+              AND folder.is_deleted = false
+              AND (
+                  CASE
+                      WHEN folder.path = '/' THEN '/' || file_row.name
+                      ELSE folder.path || '/' || file_row.name
+                  END
+              ) = $2
+            LIMIT 1
+            "#,
+        )
+        .bind(current_user.user.id)
+        .bind(&requested_path)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to resolve file download path"))?
+        .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?
+    };
 
     let absolute_path = PathBuf::from(&settings.storage_root_path)
         .join(file_row.storage_path.trim_start_matches('/'));
@@ -425,40 +1246,52 @@ pub async fn create_folder(
     input: CreateFolderInput,
 ) -> Result<StorageEntryDto, ApiError> {
     let folder_name = normalize_item_name(&input.name, "Folder name")?;
-    let parent_path = normalize_api_path(input.parent_path.as_deref().unwrap_or("/"))?;
     let settings = load_system_storage_settings(pool).await?;
 
     let mut tx = pool.begin().await.map_err(|_| {
         ApiError::internal_with_context("Failed to start folder creation transaction")
     })?;
 
-    let parent_folder =
-        load_requested_folder_tx(&mut tx, current_user.user.id, &parent_path).await?;
+    let (parent_folder, access) = if let Some(parent_folder_id) = input.parent_folder_id {
+        load_accessible_folder_by_id_tx(&mut tx, current_user.user.id, parent_folder_id).await?
+    } else {
+        let parent_path = normalize_api_path(input.parent_path.as_deref().unwrap_or("/"))?;
+        (
+            load_requested_folder_tx(&mut tx, current_user.user.id, &parent_path).await?,
+            AccessLevel::Owner,
+        )
+    };
 
-    ensure_name_not_taken_tx(
-        &mut tx,
-        current_user.user.id,
-        parent_folder.id,
-        &folder_name,
-    )
-    .await?;
+    if !access.is_editor() {
+        return Err(ApiError::BadRequest(
+            "You need editor permission to create a folder here".to_owned(),
+        ));
+    }
+
+    ensure_name_not_taken_tx(&mut tx, parent_folder.id, &folder_name).await?;
 
     let child_path = join_child_path(&normalize_db_path(&parent_folder.path), &folder_name);
+    // Ownership follows the parent folder owner so shared editors create resources
+    // under the parent owner's namespace and quota.
+    let owner_user_id = parent_folder.owner_user_id;
 
     let inserted = sqlx::query_as::<_, StorageEntryRow>(
         r#"
         INSERT INTO folders (owner_user_id, parent_folder_id, name, path, is_deleted)
         VALUES ($1, $2, $3, $4, false)
         RETURNING
+            id,
             name,
             path,
             'folder'::TEXT AS entry_type,
+            owner_user_id,
+            (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
             is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(owner_user_id)
     .bind(parent_folder.id)
     .bind(&folder_name)
     .bind(&child_path)
@@ -466,7 +1299,7 @@ pub async fn create_folder(
     .await
     .map_err(map_storage_write_error)?;
 
-    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let user_root = resolve_user_storage_root(&settings.storage_root_path, owner_user_id);
     let folder_fs_path = user_root.join(logical_path_to_relative_path(&child_path));
 
     fs::create_dir_all(&folder_fs_path).map_err(|_| {
@@ -507,10 +1340,6 @@ pub async fn upload_file(
     };
 
     let extension = extract_extension(&file_name);
-    let folder_path = match normalize_api_path(input.folder_path.as_deref().unwrap_or("/")) {
-        Ok(value) => value,
-        Err(error) => return Err(cleanup_temp_file_and_return(&temp_file_path, error)),
-    };
 
     let settings = match load_system_storage_settings(pool).await {
         Ok(value) => value,
@@ -527,19 +1356,39 @@ pub async fn upload_file(
         }
     };
 
-    let target_folder =
-        match load_requested_folder_tx(&mut tx, current_user.user.id, &folder_path).await {
+    let (target_folder, access) = if let Some(folder_id) = input.folder_id {
+        match load_accessible_folder_by_id_tx(&mut tx, current_user.user.id, folder_id).await {
+            Ok(value) => value,
+            Err(error) => return Err(cleanup_temp_file_and_return(&temp_file_path, error)),
+        }
+    } else {
+        let folder_path = match normalize_api_path(input.folder_path.as_deref().unwrap_or("/")) {
             Ok(value) => value,
             Err(error) => return Err(cleanup_temp_file_and_return(&temp_file_path, error)),
         };
 
-    if let Err(error) =
-        ensure_name_not_taken_tx(&mut tx, current_user.user.id, target_folder.id, &file_name).await
-    {
+        match load_requested_folder_tx(&mut tx, current_user.user.id, &folder_path).await {
+            Ok(value) => (value, AccessLevel::Owner),
+            Err(error) => return Err(cleanup_temp_file_and_return(&temp_file_path, error)),
+        }
+    };
+
+    if !access.is_editor() {
+        return Err(cleanup_temp_file_and_return(
+            &temp_file_path,
+            ApiError::BadRequest("You need editor permission to upload files here".to_owned()),
+        ));
+    }
+
+    if let Err(error) = ensure_name_not_taken_tx(&mut tx, target_folder.id, &file_name).await {
         return Err(cleanup_temp_file_and_return(&temp_file_path, error));
     }
 
-    let user_storage = match load_user_storage_tx(&mut tx, current_user.user.id).await {
+    // Ownership follows the parent folder owner so shared editors upload files
+    // under the parent owner's namespace and quota.
+    let owner_user_id = target_folder.owner_user_id;
+
+    let user_storage = match load_user_storage_tx(&mut tx, owner_user_id).await {
         Ok(value) => value,
         Err(error) => return Err(cleanup_temp_file_and_return(&temp_file_path, error)),
     };
@@ -570,7 +1419,7 @@ pub async fn upload_file(
         }
     }
 
-    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let user_root = resolve_user_storage_root(&settings.storage_root_path, owner_user_id);
     let logical_folder_path = normalize_db_path(&target_folder.path);
     let folder_relative_path = logical_path_to_relative_path(&logical_folder_path);
     let folder_absolute_path = user_root.join(&folder_relative_path);
@@ -597,7 +1446,7 @@ pub async fn upload_file(
     }
 
     let storage_rel_path = Path::new("users")
-        .join(current_user.user.id.to_string())
+        .join(owner_user_id.to_string())
         .join(folder_relative_path)
         .join(&file_name);
     let storage_path = format!("/{}", storage_rel_path.to_string_lossy().replace('\\', "/"));
@@ -625,18 +1474,21 @@ pub async fn upload_file(
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)
         RETURNING
+            id,
             name,
             CASE
                 WHEN $10::TEXT = '/' THEN '/' || name
                 ELSE $10::TEXT || '/' || name
             END AS path,
             'file'::TEXT AS entry_type,
+            owner_user_id,
+            (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
             is_starred,
             size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(owner_user_id)
     .bind(target_folder.id)
     .bind(&file_name)
     .bind(&file_name)
@@ -664,7 +1516,7 @@ pub async fn upload_file(
         WHERE id = $1
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(owner_user_id)
     .bind(input.file_size_bytes)
     .execute(&mut *tx)
     .await
@@ -688,13 +1540,6 @@ pub async fn rename_file(
     current_user: &AuthenticatedUser,
     input: RenameStorageInput,
 ) -> Result<StorageEntryDto, ApiError> {
-    let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
-    if requested_path == "/" {
-        return Err(ApiError::BadRequest(
-            "Requested path must point to a file".to_owned(),
-        ));
-    }
-
     let new_name = normalize_item_name(&input.new_name, "File name")?;
     let settings = load_system_storage_settings(pool).await?;
 
@@ -703,27 +1548,48 @@ pub async fn rename_file(
         .await
         .map_err(|_| ApiError::internal_with_context("Failed to start file rename transaction"))?;
 
-    let target_file =
-        load_file_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?;
+    let (target_file, access) = if let Some(resource_id) = input.resource_id {
+        load_accessible_file_for_rename_by_id_tx(&mut tx, current_user.user.id, resource_id).await?
+    } else {
+        let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
+        if requested_path == "/" {
+            return Err(ApiError::BadRequest(
+                "Requested path must point to a file".to_owned(),
+            ));
+        }
+
+        (
+            load_file_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?,
+            AccessLevel::Owner,
+        )
+    };
+
+    if !access.is_editor() {
+        return Err(ApiError::BadRequest(
+            "You need editor permission to rename files here".to_owned(),
+        ));
+    }
 
     if target_file.name == new_name {
+        let unchanged_path = join_child_path(
+            &normalize_db_path(&target_file.folder_path),
+            &target_file.name,
+        );
+
         return Ok(StorageEntryDto {
+            id: target_file.id,
             name: target_file.name,
-            path: normalize_db_path(&requested_path),
+            path: unchanged_path,
             entry_type: "file".to_owned(),
+            owner_user_id: target_file.owner_user_id,
+            owner_username: lookup_username_by_id_tx(&mut tx, target_file.owner_user_id).await?,
             is_starred: target_file.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
         });
     }
 
-    ensure_name_not_taken_tx(
-        &mut tx,
-        current_user.user.id,
-        target_file.folder_id,
-        &new_name,
-    )
-    .await?;
+    ensure_name_not_taken_tx(&mut tx, target_file.folder_id, &new_name).await?;
 
     let old_storage_rel = PathBuf::from(target_file.storage_path.trim_start_matches('/'));
     let new_storage_rel = old_storage_rel
@@ -761,19 +1627,22 @@ pub async fn rename_file(
           AND owner_user_id = $2
           AND is_deleted = false
         RETURNING
+            id,
             name,
             CASE
                 WHEN $5::TEXT = '/' THEN '/' || name
                 ELSE $5::TEXT || '/' || name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                owner_user_id,
+                (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
                 is_starred,
                 size_bytes,
                 (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
         "#,
     )
     .bind(target_file.id)
-    .bind(current_user.user.id)
+    .bind(target_file.owner_user_id)
     .bind(&new_name)
     .bind(&new_storage_path)
     .bind(normalize_db_path(&target_file.folder_path))
@@ -802,13 +1671,6 @@ pub async fn rename_folder(
     current_user: &AuthenticatedUser,
     input: RenameStorageInput,
 ) -> Result<StorageEntryDto, ApiError> {
-    let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
-    if requested_path == "/" {
-        return Err(ApiError::BadRequest(
-            "Root folder cannot be renamed".to_owned(),
-        ));
-    }
-
     let new_name = normalize_item_name(&input.new_name, "Folder name")?;
     let settings = load_system_storage_settings(pool).await?;
 
@@ -816,14 +1678,39 @@ pub async fn rename_folder(
         ApiError::internal_with_context("Failed to start folder rename transaction")
     })?;
 
-    let target_folder =
-        load_folder_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?;
+    let (target_folder, access) = if let Some(resource_id) = input.resource_id {
+        let (folder_row, folder_access) =
+            load_accessible_folder_by_id_tx(&mut tx, current_user.user.id, resource_id).await?;
+        let rename_row = load_folder_for_rename_by_id_tx(&mut tx, folder_row.id).await?;
+        (rename_row, folder_access)
+    } else {
+        let requested_path = normalize_api_path(input.path.as_deref().unwrap_or("/"))?;
+        if requested_path == "/" {
+            return Err(ApiError::BadRequest(
+                "Root folder cannot be renamed".to_owned(),
+            ));
+        }
+
+        (
+            load_folder_for_rename_tx(&mut tx, current_user.user.id, &requested_path).await?,
+            AccessLevel::Owner,
+        )
+    };
+
+    if !access.is_editor() {
+        return Err(ApiError::BadRequest(
+            "You need editor permission to rename folders here".to_owned(),
+        ));
+    }
 
     if target_folder.name == new_name {
         return Ok(StorageEntryDto {
+            id: target_folder.id,
             name: target_folder.name,
             path: normalize_db_path(&target_folder.path),
             entry_type: "folder".to_owned(),
+            owner_user_id: target_folder.owner_user_id,
+            owner_username: lookup_username_by_id_tx(&mut tx, target_folder.owner_user_id).await?,
             is_starred: target_folder.is_starred,
             size_bytes: None,
             modified_at_unix_ms: None,
@@ -834,7 +1721,7 @@ pub async fn rename_folder(
         .parent_folder_id
         .ok_or_else(|| ApiError::BadRequest("Root folder cannot be renamed".to_owned()))?;
 
-    ensure_name_not_taken_tx(&mut tx, current_user.user.id, parent_folder_id, &new_name).await?;
+    ensure_name_not_taken_tx(&mut tx, parent_folder_id, &new_name).await?;
 
     let parent_path = parent_api_path(&target_folder.path)
         .ok_or_else(|| ApiError::BadRequest("Root folder cannot be renamed".to_owned()))?;
@@ -842,11 +1729,13 @@ pub async fn rename_folder(
     let old_folder_prefix = format!("{}/%", target_folder.path.trim_end_matches('/'));
 
     let old_storage_prefix =
-        logical_path_to_storage_prefix(current_user.user.id, &target_folder.path);
-    let new_storage_prefix = logical_path_to_storage_prefix(current_user.user.id, &new_folder_path);
+        logical_path_to_storage_prefix(target_folder.owner_user_id, &target_folder.path);
+    let new_storage_prefix =
+        logical_path_to_storage_prefix(target_folder.owner_user_id, &new_folder_path);
     let old_storage_prefix_like = format!("{}/%", old_storage_prefix.trim_end_matches('/'));
 
-    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let user_root =
+        resolve_user_storage_root(&settings.storage_root_path, target_folder.owner_user_id);
     let old_folder_abs = user_root.join(logical_path_to_relative_path(&target_folder.path));
     let new_folder_abs = user_root.join(logical_path_to_relative_path(&new_folder_path));
 
@@ -872,7 +1761,7 @@ pub async fn rename_folder(
         "#,
     )
     .bind(target_folder.id)
-    .bind(current_user.user.id)
+    .bind(target_folder.owner_user_id)
     .bind(&new_name)
     .execute(&mut *tx)
     .await
@@ -896,7 +1785,7 @@ pub async fn rename_folder(
           )
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(target_folder.owner_user_id)
     .bind(&target_folder.path)
     .bind(&new_folder_path)
     .bind(&old_folder_prefix)
@@ -922,7 +1811,7 @@ pub async fn rename_folder(
           )
         "#,
     )
-    .bind(current_user.user.id)
+    .bind(target_folder.owner_user_id)
     .bind(&old_storage_prefix)
     .bind(&new_storage_prefix)
     .bind(&old_storage_prefix_like)
@@ -936,9 +1825,12 @@ pub async fn rename_folder(
     let renamed_folder = match sqlx::query_as::<_, StorageEntryRow>(
         r#"
         SELECT
+            id,
             name,
             path,
             'folder'::TEXT AS entry_type,
+            owner_user_id,
+            (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
             is_starred,
             NULL::BIGINT AS size_bytes,
             (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -949,7 +1841,7 @@ pub async fn rename_folder(
         "#,
     )
     .bind(target_folder.id)
-    .bind(current_user.user.id)
+    .bind(target_folder.owner_user_id)
     .fetch_optional(&mut *tx)
     .await
     {
@@ -1000,9 +1892,12 @@ pub async fn set_starred(
                   AND path = $2
                   AND is_deleted = false
                 RETURNING
+                    id,
                     name,
                     path,
                     'folder'::TEXT AS entry_type,
+                    owner_user_id,
+                    (SELECT username FROM users WHERE users.id = owner_user_id) AS owner_username,
                     is_starred,
                     NULL::BIGINT AS size_bytes,
                     (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -1043,12 +1938,15 @@ pub async fn set_starred(
                       END
                   ) = $2
                 RETURNING
+                    files.id,
                     files.name,
                     CASE
                         WHEN folder.path = '/' THEN '/' || files.name
                         ELSE folder.path || '/' || files.name
                     END AS path,
                     'file'::TEXT AS entry_type,
+                    files.owner_user_id,
+                    (SELECT username FROM users WHERE users.id = files.owner_user_id) AS owner_username,
                     files.is_starred,
                     files.size_bytes,
                     (EXTRACT(EPOCH FROM files.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
@@ -1562,7 +2460,7 @@ async fn load_requested_folder(
     if requested_path == "/" {
         return sqlx::query_as::<_, FolderRow>(
             r#"
-            SELECT id, path
+            SELECT id, path, parent_folder_id, owner_user_id
             FROM folders
             WHERE id = $1
               AND owner_user_id = $2
@@ -1580,7 +2478,7 @@ async fn load_requested_folder(
 
     sqlx::query_as::<_, FolderRow>(
         r#"
-        SELECT id, path
+        SELECT id, path, parent_folder_id, owner_user_id
         FROM folders
         WHERE owner_user_id = $1
           AND path = $2
@@ -1594,6 +2492,81 @@ async fn load_requested_folder(
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to resolve requested storage path"))?
     .ok_or_else(|| ApiError::BadRequest("Requested storage path does not exist".to_owned()))
+}
+
+async fn load_accessible_folder_by_id(
+    pool: &PgPool,
+    user_id: i64,
+    folder_id: i64,
+) -> Result<(FolderRow, AccessLevel), ApiError> {
+    let row = sqlx::query_as::<_, FolderAccessRow>(
+        r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_folder_id, owner_user_id
+            FROM folders
+            WHERE id = $1
+              AND is_deleted = false
+
+            UNION ALL
+
+            SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+            FROM folders parent
+            INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+            WHERE parent.is_deleted = false
+        )
+        SELECT
+            folder.id,
+            folder.path,
+            folder.parent_folder_id,
+            folder.owner_user_id,
+            CASE
+                WHEN folder.owner_user_id = $2 THEN 3
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM ancestors branch
+                    WHERE branch.owner_user_id = $2
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                ELSE 0
+            END AS access_rank
+        FROM folders folder
+        WHERE folder.id = $1
+          AND folder.is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve storage folder access"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested storage folder does not exist".to_owned()))?;
+
+    let access = access_level_from_rank(row.access_rank)
+        .ok_or_else(|| ApiError::BadRequest("You do not have access to this folder".to_owned()))?;
+
+    Ok((
+        FolderRow {
+            id: row.id,
+            path: row.path,
+            parent_folder_id: row.parent_folder_id,
+            owner_user_id: row.owner_user_id,
+        },
+        access,
+    ))
 }
 
 async fn load_requested_folder_tx(
@@ -1619,7 +2592,7 @@ async fn load_requested_folder_tx(
     if requested_path == "/" {
         return sqlx::query_as::<_, FolderRow>(
             r#"
-            SELECT id, path
+            SELECT id, path, parent_folder_id, owner_user_id
             FROM folders
             WHERE id = $1
               AND owner_user_id = $2
@@ -1637,7 +2610,7 @@ async fn load_requested_folder_tx(
 
     sqlx::query_as::<_, FolderRow>(
         r#"
-        SELECT id, path
+        SELECT id, path, parent_folder_id, owner_user_id
         FROM folders
         WHERE owner_user_id = $1
           AND path = $2
@@ -1651,6 +2624,81 @@ async fn load_requested_folder_tx(
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to resolve requested storage path"))?
     .ok_or_else(|| ApiError::BadRequest("Requested storage path does not exist".to_owned()))
+}
+
+async fn load_accessible_folder_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    folder_id: i64,
+) -> Result<(FolderRow, AccessLevel), ApiError> {
+    let row = sqlx::query_as::<_, FolderAccessRow>(
+        r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_folder_id, owner_user_id
+            FROM folders
+            WHERE id = $1
+              AND is_deleted = false
+
+            UNION ALL
+
+            SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+            FROM folders parent
+            INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+            WHERE parent.is_deleted = false
+        )
+        SELECT
+            folder.id,
+            folder.path,
+            folder.parent_folder_id,
+            folder.owner_user_id,
+            CASE
+                WHEN folder.owner_user_id = $2 THEN 3
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM ancestors branch
+                    WHERE branch.owner_user_id = $2
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                ELSE 0
+            END AS access_rank
+        FROM folders folder
+        WHERE folder.id = $1
+          AND folder.is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve storage folder access"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested storage folder does not exist".to_owned()))?;
+
+    let access = access_level_from_rank(row.access_rank)
+        .ok_or_else(|| ApiError::BadRequest("You do not have access to this folder".to_owned()))?;
+
+    Ok((
+        FolderRow {
+            id: row.id,
+            path: row.path,
+            parent_folder_id: row.parent_folder_id,
+            owner_user_id: row.owner_user_id,
+        },
+        access,
+    ))
 }
 
 async fn load_file_for_deletion_tx(
@@ -1739,6 +2787,7 @@ async fn load_file_for_rename_tx(
         r#"
         SELECT
             file_row.id,
+            file_row.owner_user_id,
             file_row.name,
             file_row.is_starred,
             file_row.storage_path,
@@ -1777,6 +2826,7 @@ async fn load_folder_for_rename_tx(
         r#"
         SELECT
             id,
+            owner_user_id,
             name,
             is_starred,
             path,
@@ -1794,6 +2844,135 @@ async fn load_folder_for_rename_tx(
     .await
     .map_err(|_| ApiError::internal_with_context("Failed to resolve folder rename path"))?
     .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned()))
+}
+
+async fn load_folder_for_rename_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    folder_id: i64,
+) -> Result<RenameFolderRow, ApiError> {
+    sqlx::query_as::<_, RenameFolderRow>(
+        r#"
+        SELECT
+            id,
+            owner_user_id,
+            name,
+            is_starred,
+            path,
+            parent_folder_id
+        FROM folders
+        WHERE id = $1
+          AND is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(folder_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve folder rename target"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned()))
+}
+
+async fn load_accessible_file_for_rename_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    file_id: i64,
+) -> Result<(RenameFileRow, AccessLevel), ApiError> {
+    let row = sqlx::query_as::<_, RenameFileAccessRow>(
+        r#"
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_folder_id, owner_user_id
+            FROM folders
+            WHERE id = (
+                SELECT folder_id
+                FROM files
+                WHERE id = $1
+                LIMIT 1
+            )
+              AND is_deleted = false
+
+            UNION ALL
+
+            SELECT parent.id, parent.parent_folder_id, parent.owner_user_id
+            FROM folders parent
+            INNER JOIN ancestors branch ON branch.parent_folder_id = parent.id
+            WHERE parent.is_deleted = false
+        )
+        SELECT
+            file_row.id,
+            file_row.owner_user_id,
+            file_row.name,
+            file_row.is_starred,
+            file_row.storage_path,
+            file_row.folder_id,
+            folder.path AS folder_path,
+            CASE
+                WHEN file_row.owner_user_id = $2 THEN 3
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM ancestors branch
+                    WHERE branch.owner_user_id = $2
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_permissions file_perm
+                    WHERE file_perm.file_id = file_row.id
+                      AND file_perm.user_id = $2
+                      AND lower(file_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('editor', 'edit')
+                ) THEN 2
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM file_permissions file_perm
+                    WHERE file_perm.file_id = file_row.id
+                      AND file_perm.user_id = $2
+                      AND lower(file_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM folder_permissions folder_perm
+                    INNER JOIN ancestors branch ON branch.id = folder_perm.folder_id
+                    WHERE folder_perm.user_id = $2
+                      AND lower(folder_perm.privilege_type) IN ('viewer', 'view', 'read', 'editor', 'edit')
+                ) THEN 1
+                ELSE 0
+            END AS access_rank
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.id = $1
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve file rename target"))?
+    .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned()))?;
+
+    let access = access_level_from_rank(row.access_rank)
+        .ok_or_else(|| ApiError::BadRequest("You do not have access to this file".to_owned()))?;
+
+    Ok((
+        RenameFileRow {
+            id: row.id,
+            owner_user_id: row.owner_user_id,
+            name: row.name,
+            is_starred: row.is_starred,
+            storage_path: row.storage_path,
+            folder_id: row.folder_id,
+            folder_path: row.folder_path,
+        },
+        access,
+    ))
 }
 
 async fn load_folder_for_deletion_tx(
@@ -1903,7 +3082,6 @@ async fn load_folder_subtree_file_size_tx(
 
 async fn ensure_name_not_taken_tx(
     tx: &mut Transaction<'_, Postgres>,
-    owner_user_id: i64,
     parent_folder_id: i64,
     name: &str,
 ) -> Result<(), ApiError> {
@@ -1912,22 +3090,19 @@ async fn ensure_name_not_taken_tx(
         SELECT EXISTS (
             SELECT 1
             FROM folders
-            WHERE owner_user_id = $1
-              AND parent_folder_id = $2
-              AND name = $3
+            WHERE parent_folder_id = $1
+              AND name = $2
               AND is_deleted = false
         )
         OR EXISTS (
             SELECT 1
             FROM files
-            WHERE owner_user_id = $1
-              AND folder_id = $2
-              AND name = $3
+            WHERE folder_id = $1
+              AND name = $2
               AND is_deleted = false
         )
         "#,
     )
-    .bind(owner_user_id)
     .bind(parent_folder_id)
     .bind(name)
     .fetch_one(&mut **tx)
@@ -1945,7 +3120,6 @@ async fn ensure_name_not_taken_tx(
 
 async fn load_storage_entries(
     pool: &PgPool,
-    user_id: i64,
     parent_folder_id: i64,
     parent_folder_path: &str,
     search: Option<&str>,
@@ -1953,43 +3127,54 @@ async fn load_storage_entries(
     sqlx::query_as::<_, StorageEntryRow>(
         r#"
         SELECT
+            entries.id,
             entries.name,
             entries.path,
             entries.entry_type,
+            entries.owner_user_id,
+            entries.owner_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
         FROM (
             SELECT
+                f.id,
                 f.name,
                 f.path,
                 'folder'::TEXT AS entry_type,
+                f.owner_user_id,
+                owner_user.username AS owner_username,
                 f.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM f.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders f
-            WHERE f.owner_user_id = $1
-              AND f.parent_folder_id = $2
+            INNER JOIN users owner_user
+                ON owner_user.id = f.owner_user_id
+            WHERE f.parent_folder_id = $1
               AND f.is_deleted = false
-              AND ($3::TEXT IS NULL OR f.name ILIKE '%' || $3 || '%')
+              AND ($2::TEXT IS NULL OR f.name ILIKE '%' || $2 || '%')
 
             UNION ALL
 
             SELECT
+                file_row.id,
                 file_row.name,
                 CASE
-                    WHEN $4::TEXT = '/' THEN '/' || file_row.name
-                    ELSE $4::TEXT || '/' || file_row.name
+                    WHEN $3::TEXT = '/' THEN '/' || file_row.name
+                    ELSE $3::TEXT || '/' || file_row.name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
-            WHERE file_row.owner_user_id = $1
-              AND file_row.folder_id = $2
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
+            WHERE file_row.folder_id = $1
               AND file_row.is_deleted = false
-              AND ($3::TEXT IS NULL OR file_row.name ILIKE '%' || $3 || '%')
+              AND ($2::TEXT IS NULL OR file_row.name ILIKE '%' || $2 || '%')
         ) entries
         ORDER BY
             CASE WHEN entries.entry_type = 'folder' THEN 0 ELSE 1 END,
@@ -1997,7 +3182,6 @@ async fn load_storage_entries(
             entries.name
         "#,
     )
-    .bind(user_id)
     .bind(parent_folder_id)
     .bind(search)
     .bind(parent_folder_path)
@@ -2014,21 +3198,29 @@ async fn load_trashed_storage_entries(
     sqlx::query_as::<_, StorageEntryRow>(
         r#"
         SELECT
+            entries.id,
             entries.name,
             entries.path,
             entries.entry_type,
+            entries.owner_user_id,
+            entries.owner_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
         FROM (
             SELECT
+                folder.id,
                 folder.name,
                 folder.path,
                 'folder'::TEXT AS entry_type,
+                folder.owner_user_id,
+                owner_user.username AS owner_username,
                 folder.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(folder.deleted_at, folder.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders folder
+            INNER JOIN users owner_user
+                ON owner_user.id = folder.owner_user_id
             LEFT JOIN folders parent
                 ON parent.id = folder.parent_folder_id
             WHERE folder.owner_user_id = $1
@@ -2042,16 +3234,21 @@ async fn load_trashed_storage_entries(
             UNION ALL
 
             SELECT
+                file_row.id,
                 file_row.name,
                 CASE
                     WHEN folder.path = '/' THEN '/' || file_row.name
                     ELSE folder.path || '/' || file_row.name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM COALESCE(file_row.deleted_at, file_row.updated_at)) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
             INNER JOIN folders folder
                 ON folder.id = file_row.folder_id
             WHERE file_row.owner_user_id = $1
@@ -2078,21 +3275,29 @@ async fn load_starred_storage_entries(
     sqlx::query_as::<_, StorageEntryRow>(
         r#"
         SELECT
+            entries.id,
             entries.name,
             entries.path,
             entries.entry_type,
+            entries.owner_user_id,
+            entries.owner_username,
             entries.is_starred,
             entries.size_bytes,
             entries.modified_at_unix_ms
         FROM (
             SELECT
+                folder.id,
                 folder.name,
                 folder.path,
                 'folder'::TEXT AS entry_type,
+                folder.owner_user_id,
+                owner_user.username AS owner_username,
                 folder.is_starred,
                 NULL::BIGINT AS size_bytes,
                 (EXTRACT(EPOCH FROM folder.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM folders folder
+            INNER JOIN users owner_user
+                ON owner_user.id = folder.owner_user_id
             WHERE folder.owner_user_id = $1
               AND folder.is_deleted = false
               AND folder.is_starred = true
@@ -2101,16 +3306,21 @@ async fn load_starred_storage_entries(
             UNION ALL
 
             SELECT
+                file_row.id,
                 file_row.name,
                 CASE
                     WHEN folder.path = '/' THEN '/' || file_row.name
                     ELSE folder.path || '/' || file_row.name
                 END AS path,
                 'file'::TEXT AS entry_type,
+                file_row.owner_user_id,
+                owner_user.username AS owner_username,
                 file_row.is_starred,
                 file_row.size_bytes,
                 (EXTRACT(EPOCH FROM file_row.updated_at) * 1000)::BIGINT AS modified_at_unix_ms
             FROM files file_row
+            INNER JOIN users owner_user
+                ON owner_user.id = file_row.owner_user_id
             INNER JOIN folders folder
                 ON folder.id = file_row.folder_id
             WHERE file_row.owner_user_id = $1
@@ -2132,12 +3342,116 @@ async fn load_starred_storage_entries(
 
 fn storage_entry_row_to_dto(row: StorageEntryRow) -> StorageEntryDto {
     StorageEntryDto {
+        id: row.id,
         name: row.name,
         path: normalize_db_path(&row.path),
         entry_type: row.entry_type,
+        owner_user_id: row.owner_user_id,
+        owner_username: row.owner_username,
         is_starred: row.is_starred,
         size_bytes: row.size_bytes,
         modified_at_unix_ms: Some(row.modified_at_unix_ms),
+    }
+}
+
+fn is_descendant_path(path: &str, ancestor: &str) -> bool {
+    let normalized_path = normalize_db_path(path);
+    let normalized_ancestor = normalize_db_path(ancestor);
+
+    if normalized_ancestor == "/" {
+        return normalized_path != "/";
+    }
+
+    normalized_path.len() > normalized_ancestor.len()
+        && normalized_path.starts_with(&normalized_ancestor)
+        && normalized_path
+            .as_bytes()
+            .get(normalized_ancestor.len())
+            .copied()
+            == Some(b'/')
+}
+
+fn access_level_from_rank(rank: i32) -> Option<AccessLevel> {
+    if rank >= 3 {
+        return Some(AccessLevel::Owner);
+    }
+
+    if rank >= 2 {
+        return Some(AccessLevel::Editor);
+    }
+
+    if rank >= 1 {
+        return Some(AccessLevel::Viewer);
+    }
+
+    None
+}
+
+async fn lookup_username_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+) -> Result<String, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT username
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to load username"))?
+    .ok_or_else(|| ApiError::BadRequest("User account does not exist".to_owned()))
+}
+
+async fn load_resource_owner(
+    pool: &PgPool,
+    resource_type: StorageEntryKind,
+    resource_id: i64,
+) -> Result<ResourceOwnerRow, ApiError> {
+    match resource_type {
+        StorageEntryKind::Folder => sqlx::query_as::<_, ResourceOwnerRow>(
+            r#"
+            SELECT owner_user_id, name AS resource_name
+            FROM folders
+            WHERE id = $1
+              AND is_deleted = false
+            LIMIT 1
+            "#,
+        )
+        .bind(resource_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to resolve folder owner"))?
+        .ok_or_else(|| ApiError::BadRequest("Requested folder does not exist".to_owned())),
+        StorageEntryKind::File => sqlx::query_as::<_, ResourceOwnerRow>(
+            r#"
+            SELECT owner_user_id, name AS resource_name
+            FROM files
+            WHERE id = $1
+              AND is_deleted = false
+            LIMIT 1
+            "#,
+        )
+        .bind(resource_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to resolve file owner"))?
+        .ok_or_else(|| ApiError::BadRequest("Requested file does not exist".to_owned())),
+    }
+}
+
+fn normalize_share_privilege(raw: &str) -> Result<&'static str, ApiError> {
+    let normalized = raw.trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "viewer" | "view" | "read" => Ok("viewer"),
+        "editor" | "edit" => Ok("editor"),
+        _ => Err(ApiError::BadRequest(
+            "privilegeType must be either 'viewer' or 'editor'".to_owned(),
+        )),
     }
 }
 

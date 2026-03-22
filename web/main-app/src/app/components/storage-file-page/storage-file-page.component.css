@@ -1,0 +1,123 @@
+:host {
+  --panel: var(--theme-surface);
+  --panel-soft: var(--theme-surface-soft);
+  --line: var(--theme-line);
+  --line-strong: var(--theme-line-strong);
+  --text: var(--theme-text);
+  --muted: var(--theme-muted);
+  --focus: var(--theme-focus);
+
+  display: block;
+  height: 100%;
+  min-height: 0;
+  color: var(--text);
+}
+
+.file-page {
+  height: 100%;
+  min-height: 0;
+  padding: 0.75rem;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.68rem;
+}
+
+.file-header {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  padding: 0.68rem 0.78rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.file-header h2 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.file-header p {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.header-actions button {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  min-height: 34px;
+  padding: 0 0.7rem;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.header-actions button.primary {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 14%, var(--panel));
+}
+
+.header-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.meta-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 0.52rem 0.8rem;
+}
+
+.meta-grid dt {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.meta-grid dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.status-text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--theme-danger);
+}
+
+@media (max-width: 760px) {
+  .file-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}

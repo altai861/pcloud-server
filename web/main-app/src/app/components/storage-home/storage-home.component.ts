@@ -1,10 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, ViewRef } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { debounceTime, distinctUntilChanged, finalize, Subscription } from 'rxjs';
 
 import { ApiErrorResponseDto } from '../../dto/api-error-response.dto';
+import { ShareableUserDto } from '../../dto/shareable-user.dto';
+import { SharedPermissionTargetDto } from '../../dto/shared-permission-target.dto';
 import { StorageEntryDto } from '../../dto/storage-entry.dto';
 import { StorageFolderMetadataDto } from '../../dto/storage-folder-metadata.dto';
 import { StorageListResponseDto } from '../../dto/storage-list-response.dto';
@@ -20,6 +22,7 @@ type ViewMode = 'list' | 'grid';
 interface BreadcrumbItem {
   label: string;
   path: string;
+  canOpen: boolean;
 }
 
 @Component({
@@ -31,13 +34,20 @@ interface BreadcrumbItem {
 export class StorageHomeComponent implements OnInit, OnDestroy {
   private actionSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
+  private routeSub: Subscription | null = null;
   private listLoadSub: Subscription | null = null;
   private profileImageSub: Subscription | null = null;
   private listRequestId = 0;
   private searchTerm = '';
+  private navigationSource: 'storage' | 'shared' = 'storage';
+  private ownerAvatarUrls = new Map<number, string>();
+  private ownerAvatarFallbackIds = new Set<number>();
+  private ownerAvatarAccessToken: string | null = null;
 
   currentPath = '/';
+  currentFolderId: number | null = null;
   parentPath: string | null = null;
+  currentPrivilege: 'owner' | 'editor' | 'viewer' = 'owner';
   entries: StorageEntryDto[] = [];
 
   storageLoading = false;
@@ -60,6 +70,17 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   renameErrorMessage = '';
   renameSubmitting = false;
   ownerProfileImageSrc: string | null = null;
+  isShareModalOpen = false;
+  shareModalEntry: StorageEntryDto | null = null;
+  shareModalErrorMessage = '';
+  sharePermissionsLoading = false;
+  sharePermissions: SharedPermissionTargetDto[] = [];
+  shareUserSearchTerm = '';
+  shareUsersLoading = false;
+  shareUsers: ShareableUserDto[] = [];
+  selectedShareUserId: number | null = null;
+  selectedSharePrivilege: 'viewer' | 'editor' = 'viewer';
+  shareMutationLoading = false;
 
   constructor(
     private readonly storageApiService: StorageApiService,
@@ -68,6 +89,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     private readonly recentEntriesService: RecentEntriesService,
     private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly searchService: WorkspaceSearchService,
+    private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly cdr: ChangeDetectorRef
   ) { }
@@ -82,8 +104,31 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       .pipe(debounceTime(260), distinctUntilChanged())
       .subscribe((term) => {
         this.searchTerm = term.trim();
-        this.loadStorage(this.currentPath);
+        this.reloadCurrentFolder();
       });
+
+    this.routeSub = this.route.paramMap.subscribe((params) => {
+      const source = this.route.snapshot.queryParamMap.get('source');
+      this.navigationSource = source === 'shared' ? 'shared' : 'storage';
+
+      const rawFolderId = params.get('folderId') ?? 'root';
+
+      if (rawFolderId === 'root') {
+        this.loadStorageByPath('/', true);
+        return;
+      }
+
+      const folderId = Number(rawFolderId);
+      if (!Number.isInteger(folderId) || folderId <= 0) {
+        this.storageErrorMessage = 'Invalid folder route';
+        this.entries = [];
+        this.storageLoading = false;
+        this.triggerUiRefresh();
+        return;
+      }
+
+      this.loadStorageByFolderId(folderId);
+    });
 
     this.actionSub = this.storageSidebarActions.actions$.subscribe((action) => {
       this.handleSidebarAction(action);
@@ -97,6 +142,8 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.searchSub?.unsubscribe();
     this.searchSub = null;
+    this.routeSub?.unsubscribe();
+    this.routeSub = null;
     this.actionSub?.unsubscribe();
     this.actionSub = null;
     this.listLoadSub?.unsubscribe();
@@ -107,7 +154,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   get breadcrumbs(): BreadcrumbItem[] {
-    const result: BreadcrumbItem[] = [{ label: 'My Storage', path: '/' }];
+    const isSharedContext = this.isSharedContext;
+    const result: BreadcrumbItem[] = [{
+      label: isSharedContext ? 'Shared with me' : 'My Storage',
+      path: '/',
+      canOpen: true
+    }];
 
     if (this.currentPath === '/') {
       return result;
@@ -120,7 +172,8 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       pathAccumulator += `/${chunk}`;
       result.push({
         label: chunk,
-        path: pathAccumulator
+        path: pathAccumulator,
+        canOpen: !isSharedContext
       });
     }
 
@@ -128,7 +181,14 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   openPath(path: string): void {
-    this.loadStorage(path);
+    if (this.isSharedContext) {
+      if (path === '/') {
+        this.router.navigate(['/app/shared']);
+      }
+      return;
+    }
+
+    this.loadStorageByPath(path, true);
   }
 
   openEntry(entry: StorageEntryDto): void {
@@ -138,12 +198,67 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.loadStorage(entry.path);
+    this.navigateToFolderRoute(entry.id);
+  }
+
+  ownerAvatarSrc(ownerUserId: number): string {
+    if (this.ownerAvatarFallbackIds.has(ownerUserId)) {
+      return 'profile.png';
+    }
+
+    const cached = this.ownerAvatarUrls.get(ownerUserId);
+    if (cached) {
+      return cached;
+    }
+
+    const accessToken = this.ownerAvatarAccessToken ?? this.sessionService.readAccessToken();
+    if (!accessToken) {
+      return 'profile.png';
+    }
+
+    this.ownerAvatarAccessToken = accessToken;
+    const src = this.storageApiService.buildUserProfileImageUrl('', accessToken, ownerUserId);
+    this.ownerAvatarUrls.set(ownerUserId, src);
+    return src;
+  }
+
+  onOwnerAvatarError(event: Event, ownerUserId: number): void {
+    this.ownerAvatarFallbackIds.add(ownerUserId);
+
+    const image = event.target as HTMLImageElement | null;
+    if (image) {
+      image.src = 'profile.png';
+    }
+  }
+
+  isDefaultOwnerAvatar(ownerUserId: number): boolean {
+    return this.ownerAvatarFallbackIds.has(ownerUserId);
+  }
+
+  onEntryDoubleClick(entry: StorageEntryDto): void {
+    if (entry.entryType === 'file') {
+      if (this.isSharedContext) {
+        this.router.navigate(['/app/storage/files', entry.id], {
+          queryParams: { source: 'shared' }
+        });
+      } else {
+        this.router.navigate(['/app/storage/files', entry.id]);
+      }
+      return;
+    }
+
+    this.navigateToFolderRoute(entry.id);
   }
 
   onStarClick(event: MouseEvent, entry: StorageEntryDto): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (this.currentPrivilege !== 'owner') {
+      this.storageErrorMessage = 'Starred status can only be changed from your own storage';
+      this.triggerUiRefresh();
+      return;
+    }
 
     const accessToken = this.sessionService.readAccessToken();
     if (!accessToken) {
@@ -180,6 +295,18 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.viewMode = mode;
   }
 
+  get canEditCurrentFolder(): boolean {
+    return this.currentPrivilege === 'owner' || this.currentPrivilege === 'editor';
+  }
+
+  get canMutateExistingEntries(): boolean {
+    return this.currentPrivilege === 'owner';
+  }
+
+  get canRenameExistingEntries(): boolean {
+    return this.currentPrivilege === 'owner' || this.currentPrivilege === 'editor';
+  }
+
   openEntryMenuFromButton(event: MouseEvent, entry: StorageEntryDto): void {
     event.preventDefault();
     event.stopPropagation();
@@ -195,6 +322,23 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   closeEntryMenu(): void {
     this.isEntryMenuOpen = false;
     this.entryMenuTarget = null;
+  }
+
+  onShareEntryClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.currentPrivilege !== 'owner') {
+      return;
+    }
+
+    const selectedEntry = this.entryMenuTarget;
+    if (!selectedEntry) {
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.openShareModal(selectedEntry);
   }
 
   onDownloadEntryClick(event: MouseEvent): void {
@@ -214,6 +358,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
+    if (!this.canRenameExistingEntries) {
+      this.storageErrorMessage = 'You need editor permission to rename items in this folder';
+      this.cdr.detectChanges();
+      return;
+    }
+
     const selectedEntry = this.entryMenuTarget;
     if (!selectedEntry) {
       return;
@@ -231,6 +381,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   onDeleteEntryClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.canMutateExistingEntries) {
+      this.storageErrorMessage = 'Only the owner can delete existing items in this folder';
+      this.cdr.detectChanges();
+      return;
+    }
 
     const selectedEntry = this.entryMenuTarget;
     if (!selectedEntry) {
@@ -268,7 +424,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       .subscribe({
         next: () => {
           this.storageSidebarActions.notifyUsageChanged();
-          this.loadStorage(this.currentPath);
+          this.reloadCurrentFolder();
         },
         error: (error: unknown) => {
           this.storageErrorMessage = this.extractError(error, `Failed to move ${selectedEntry.entryType} to trash`);
@@ -291,6 +447,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   submitRename(): void {
+    if (!this.canRenameExistingEntries) {
+      this.renameErrorMessage = 'You need editor permission to rename items in this folder';
+      this.cdr.detectChanges();
+      return;
+    }
+
     const target = this.renameTarget;
     if (!target) {
       return;
@@ -319,8 +481,8 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.renameErrorMessage = '';
 
     const request = target.entryType === 'folder'
-      ? this.storageApiService.renameFolder('', accessToken, target.path, nextName)
-      : this.storageApiService.renameFile('', accessToken, target.path, nextName);
+      ? this.storageApiService.renameFolder('', accessToken, target.path, nextName, target.id)
+      : this.storageApiService.renameFile('', accessToken, target.path, nextName, target.id);
 
     request
       .pipe(finalize(() => {
@@ -330,7 +492,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       .subscribe({
         next: () => {
           this.closeRenameModal();
-          this.loadStorage(this.currentPath);
+          this.reloadCurrentFolder();
         },
         error: (error: unknown) => {
           this.renameErrorMessage = this.extractError(error, `Failed to rename ${target.entryType}`);
@@ -348,6 +510,152 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     return !this.entryMenuTarget || this.entryMenuTarget.entryType !== 'file';
   }
 
+  get isEntryEditDisabled(): boolean {
+    return !this.entryMenuTarget || !this.canMutateExistingEntries;
+  }
+
+  get isEntryRenameDisabled(): boolean {
+    return !this.entryMenuTarget || !this.canRenameExistingEntries;
+  }
+
+  get isEntryShareDisabled(): boolean {
+    return !this.entryMenuTarget || this.currentPrivilege !== 'owner';
+  }
+
+  closeShareModal(): void {
+    this.isShareModalOpen = false;
+    this.shareModalEntry = null;
+    this.shareModalErrorMessage = '';
+    this.sharePermissionsLoading = false;
+    this.sharePermissions = [];
+    this.shareUserSearchTerm = '';
+    this.shareUsersLoading = false;
+    this.shareUsers = [];
+    this.selectedShareUserId = null;
+    this.selectedSharePrivilege = 'viewer';
+    this.shareMutationLoading = false;
+  }
+
+  searchShareableUsers(): void {
+    const entry = this.shareModalEntry;
+    const accessToken = this.sessionService.readAccessToken();
+    if (!entry || !accessToken) {
+      return;
+    }
+
+    this.shareUsersLoading = true;
+    this.shareModalErrorMessage = '';
+
+    this.storageApiService
+      .searchShareableUsers('', accessToken, this.shareUserSearchTerm)
+      .pipe(finalize(() => {
+        this.shareUsersLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (response) => {
+          this.shareUsers = response.users;
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.shareModalErrorMessage = this.extractError(error, 'Failed to search users');
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  selectShareUser(user: ShareableUserDto): void {
+    this.selectedShareUserId = user.userId;
+  }
+
+  grantSharePermission(): void {
+    const entry = this.shareModalEntry;
+    const accessToken = this.sessionService.readAccessToken();
+    if (!entry || !accessToken || this.selectedShareUserId === null) {
+      return;
+    }
+
+    this.shareMutationLoading = true;
+    this.shareModalErrorMessage = '';
+
+    this.storageApiService
+      .upsertSharePermission(
+        '',
+        accessToken,
+        entry.entryType,
+        entry.id,
+        this.selectedShareUserId,
+        this.selectedSharePrivilege
+      )
+      .pipe(finalize(() => {
+        this.shareMutationLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.loadSharePermissions(entry);
+        },
+        error: (error: unknown) => {
+          this.shareModalErrorMessage = this.extractError(error, 'Failed to share resource');
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  updateSharePermission(target: SharedPermissionTargetDto, privilegeType: 'viewer' | 'editor'): void {
+    const entry = this.shareModalEntry;
+    const accessToken = this.sessionService.readAccessToken();
+    if (!entry || !accessToken) {
+      return;
+    }
+
+    this.shareMutationLoading = true;
+    this.shareModalErrorMessage = '';
+
+    this.storageApiService
+      .upsertSharePermission('', accessToken, entry.entryType, entry.id, target.userId, privilegeType)
+      .pipe(finalize(() => {
+        this.shareMutationLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.loadSharePermissions(entry);
+        },
+        error: (error: unknown) => {
+          this.shareModalErrorMessage = this.extractError(error, 'Failed to update permission');
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  removeShareTarget(target: SharedPermissionTargetDto): void {
+    const entry = this.shareModalEntry;
+    const accessToken = this.sessionService.readAccessToken();
+    if (!entry || !accessToken) {
+      return;
+    }
+
+    this.shareMutationLoading = true;
+    this.shareModalErrorMessage = '';
+
+    this.storageApiService
+      .removeSharePermission('', accessToken, entry.entryType, entry.id, target.userId)
+      .pipe(finalize(() => {
+        this.shareMutationLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.loadSharePermissions(entry);
+        },
+        error: (error: unknown) => {
+          this.shareModalErrorMessage = this.extractError(error, 'Failed to remove permission');
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
   openFolderMetadata(): void {
     const accessToken = this.sessionService.readAccessToken();
     if (!accessToken) {
@@ -361,7 +669,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.folderMetadata = null;
 
     this.storageApiService
-      .folderMetadata('', accessToken, this.currentPath)
+      .folderMetadata('', accessToken, this.currentPath, this.currentFolderId)
       .pipe(finalize(() => {
         this.isFolderMetadataLoading = false;
         this.cdr.detectChanges();
@@ -462,6 +770,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscapePressed(): void {
+    if (this.isShareModalOpen) {
+      this.closeShareModal();
+      this.cdr.detectChanges();
+      return;
+    }
+
     if (this.isRenameModalOpen) {
       this.closeRenameModal();
       this.cdr.detectChanges();
@@ -476,7 +790,15 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
-  private loadStorage(path: string): void {
+  private loadStorageByFolderId(folderId: number): void {
+    this.loadStorageInternal('', folderId, false);
+  }
+
+  private loadStorageByPath(path: string, syncRoute: boolean): void {
+    this.loadStorageInternal(path, null, syncRoute);
+  }
+
+  private loadStorageInternal(path: string, folderId: number | null, syncRoute: boolean): void {
     const accessToken = this.sessionService.readAccessToken();
 
     if (!accessToken) {
@@ -491,7 +813,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.storageErrorMessage = '';
 
     this.listLoadSub = this.storageApiService
-      .list('', accessToken, path, this.searchTerm)
+      .list('', accessToken, path, this.searchTerm, folderId)
       .pipe(finalize(() => {
         if (requestId !== this.listRequestId) {
           return;
@@ -508,8 +830,16 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
           }
 
           this.currentPath = body.currentPath;
+          this.currentFolderId = body.currentFolderId;
           this.parentPath = body.parentPath;
+          this.currentPrivilege = body.currentPrivilege;
           this.entries = body.entries;
+          this.ownerAvatarAccessToken = accessToken;
+
+          if (syncRoute && body.currentFolderId !== null) {
+            this.navigateToFolderRoute(body.currentFolderId);
+          }
+
           this.triggerUiRefresh();
         },
         error: (error: unknown) => {
@@ -539,10 +869,16 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.loadStorage(action.path);
+    this.loadStorageByPath(action.path, true);
   }
 
   private openCreateFolderPrompt(): void {
+    if (!this.canEditCurrentFolder) {
+      this.storageErrorMessage = 'You need editor permission to create folders in this location';
+      this.cdr.detectChanges();
+      return;
+    }
+
     const folderName = window.prompt('Enter folder name');
     if (folderName === null) {
       return;
@@ -565,14 +901,14 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.storageErrorMessage = '';
 
     this.storageApiService
-      .createFolder('', accessToken, this.currentPath, name)
+      .createFolder('', accessToken, this.currentPath, this.currentFolderId, name)
       .pipe(finalize(() => {
         this.storageLoading = false;
         this.cdr.detectChanges();
       }))
       .subscribe({
         next: () => {
-          this.loadStorage(this.currentPath);
+          this.reloadCurrentFolder();
         },
         error: (error: unknown) => {
           this.storageErrorMessage = this.extractError(error, 'Failed to create folder');
@@ -587,6 +923,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   private uploadFile(file: File): void {
+    if (!this.canEditCurrentFolder) {
+      this.storageErrorMessage = 'You need editor permission to upload files in this location';
+      this.cdr.detectChanges();
+      return;
+    }
+
     const accessToken = this.sessionService.readAccessToken();
     if (!accessToken) {
       this.redirectToLogin();
@@ -600,7 +942,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.storageErrorMessage = '';
 
     this.storageApiService
-      .uploadFile('', accessToken, this.currentPath, file)
+      .uploadFile('', accessToken, this.currentPath, this.currentFolderId, file)
       .pipe(finalize(() => {
         this.isUploadInProgress = false;
         this.uploadProgressPercent = null;
@@ -626,7 +968,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
           if (event.type === HttpEventType.Response) {
             this.uploadProgressPercent = 100;
             this.storageSidebarActions.notifyUsageChanged();
-            this.loadStorage(this.currentPath);
+            this.reloadCurrentFolder();
           }
         },
         error: (error: unknown) => {
@@ -643,7 +985,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto): void {
     const menuWidth = 176;
-    const menuHeight = 132;
+    const menuHeight = 176;
     const viewportPadding = 8;
 
     const left = Math.max(
@@ -662,6 +1004,47 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
+  private openShareModal(entry: StorageEntryDto): void {
+    this.isShareModalOpen = true;
+    this.shareModalEntry = entry;
+    this.shareModalErrorMessage = '';
+    this.sharePermissions = [];
+    this.shareUsers = [];
+    this.selectedShareUserId = null;
+    this.selectedSharePrivilege = 'viewer';
+    this.shareUserSearchTerm = '';
+    this.loadSharePermissions(entry);
+    this.cdr.detectChanges();
+  }
+
+  private loadSharePermissions(entry: StorageEntryDto): void {
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.sharePermissionsLoading = true;
+    this.shareModalErrorMessage = '';
+
+    this.storageApiService
+      .listSharePermissions('', accessToken, entry.entryType, entry.id)
+      .pipe(finalize(() => {
+        this.sharePermissionsLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (response) => {
+          this.sharePermissions = response.entries;
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.shareModalErrorMessage = this.extractError(error, 'Failed to load sharing permissions');
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
   private downloadEntry(entry: StorageEntryDto): void {
     if (entry.entryType !== 'file') {
       this.storageErrorMessage = 'Folder download is not available yet';
@@ -678,7 +1061,8 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     const downloadUrl = this.storageApiService.buildFileDownloadUrl(
       '',
       accessToken,
-      entry.path
+      entry.path,
+      entry.id
     );
 
     const anchor = document.createElement('a');
@@ -693,6 +1077,33 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   private redirectToLogin(): void {
     this.sessionService.clearSession();
     this.router.navigate(['/login']);
+  }
+
+  private reloadCurrentFolder(): void {
+    if (this.currentFolderId !== null) {
+      this.loadStorageByFolderId(this.currentFolderId);
+      return;
+    }
+
+    this.loadStorageByPath(this.currentPath, false);
+  }
+
+  private navigateToFolderRoute(folderId: number): void {
+    const extras = this.isSharedContext
+      ? { queryParams: { source: 'shared' } }
+      : undefined;
+    const targetTree = this.router.createUrlTree(['/app/storage/folders', folderId], extras);
+    const targetUrl = this.router.serializeUrl(targetTree);
+
+    if (this.router.url === targetUrl) {
+      return;
+    }
+
+    this.router.navigate(['/app/storage/folders', folderId], extras);
+  }
+
+  private get isSharedContext(): boolean {
+    return this.navigationSource === 'shared' || this.currentPrivilege !== 'owner';
   }
 
   private extractError(payload: unknown, fallback: string): string {

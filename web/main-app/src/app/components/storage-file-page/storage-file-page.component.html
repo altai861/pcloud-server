@@ -1,0 +1,55 @@
+<section class="file-page">
+  <header class="file-header">
+    <div>
+      <h2>File Metadata</h2>
+      <p *ngIf="metadata">{{ metadata.name }}</p>
+    </div>
+
+    <div class="header-actions">
+      <button type="button" (click)="backToStorage()">Back to storage</button>
+      <button type="button" class="primary" (click)="openContainingFolder()" [disabled]="!metadata">
+        Open containing folder
+      </button>
+    </div>
+  </header>
+
+  <section class="file-card">
+    <p class="status-text" *ngIf="loading">Loading file metadata...</p>
+    <p class="status-text error" *ngIf="!loading && errorMessage">{{ errorMessage }}</p>
+
+    <dl class="meta-grid" *ngIf="!loading && metadata">
+      <dt>Name</dt>
+      <dd>{{ metadata.name }}</dd>
+
+      <dt>Path</dt>
+      <dd>{{ metadata.path }}</dd>
+
+      <dt>Folder path</dt>
+      <dd>{{ metadata.folderPath }}</dd>
+
+      <dt>Owner</dt>
+      <dd>{{ metadata.ownerUsername }}</dd>
+
+      <dt>Your access</dt>
+      <dd>{{ metadata.currentPrivilege }}</dd>
+
+      <dt>Size</dt>
+      <dd>{{ formatSize(metadata.sizeBytes) }}</dd>
+
+      <dt>MIME type</dt>
+      <dd>{{ metadata.mimeType || '-' }}</dd>
+
+      <dt>Extension</dt>
+      <dd>{{ metadata.extension || '-' }}</dd>
+
+      <dt>Starred</dt>
+      <dd>{{ metadata.currentPrivilege === 'owner' ? (metadata.isStarred ? 'Yes' : 'No') : 'Not available for shared items' }}</dd>
+
+      <dt>Created</dt>
+      <dd>{{ formatDate(metadata.createdAtUnixMs) }}</dd>
+
+      <dt>Modified</dt>
+      <dd>{{ formatDate(metadata.modifiedAtUnixMs) }}</dd>
+    </dl>
+  </section>
+</section>

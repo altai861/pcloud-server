@@ -57,8 +57,14 @@ export class RecentEntriesService {
           return (
             item !== null &&
             typeof item === 'object' &&
+            (typeof (item as RecentStorageEntryModel).id === 'number' ||
+              typeof (item as RecentStorageEntryModel).id === 'string') &&
             typeof (item as RecentStorageEntryModel).name === 'string' &&
             typeof (item as RecentStorageEntryModel).path === 'string' &&
+            ((typeof (item as RecentStorageEntryModel).ownerUserId === 'number' &&
+              Number.isFinite((item as RecentStorageEntryModel).ownerUserId)) ||
+              typeof (item as RecentStorageEntryModel).ownerUserId === 'string') &&
+            typeof (item as RecentStorageEntryModel).ownerUsername === 'string' &&
             ((item as RecentStorageEntryModel).entryType === 'folder' ||
               (item as RecentStorageEntryModel).entryType === 'file') &&
             typeof (item as RecentStorageEntryModel).isStarred === 'boolean' &&
@@ -68,9 +74,11 @@ export class RecentEntriesService {
         })
         .map((item) => ({
           ...item,
+          id: Number(item.id),
+          ownerUserId: Number(item.ownerUserId),
           openedAtUnixMs: Number(item.openedAtUnixMs)
         }))
-        .filter((item) => Number.isFinite(item.openedAtUnixMs))
+        .filter((item) => Number.isFinite(item.id) && Number.isFinite(item.ownerUserId) && Number.isFinite(item.openedAtUnixMs))
         .slice(0, this.maxEntries);
     } catch {
       return [];

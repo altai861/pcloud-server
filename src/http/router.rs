@@ -27,6 +27,10 @@ pub fn build_client_router(state: AppState) -> Router {
             "/api/client/me/profile-image",
             get(auth_handlers::profile_image).post(auth_handlers::update_profile_image),
         )
+        .route(
+            "/api/client/users/profile-image",
+            get(auth_handlers::user_profile_image),
+        )
         .route("/api/client/storage/list", get(storage_handlers::list))
         .route(
             "/api/client/storage/trash/list",
@@ -35,6 +39,20 @@ pub fn build_client_router(state: AppState) -> Router {
         .route(
             "/api/client/storage/starred/list",
             get(storage_handlers::list_starred),
+        )
+        .route(
+            "/api/client/storage/shared/list",
+            get(storage_handlers::list_shared),
+        )
+        .route(
+            "/api/client/storage/shares/users",
+            get(storage_handlers::search_shareable_users),
+        )
+        .route(
+            "/api/client/storage/shares",
+            get(storage_handlers::list_share_permissions)
+                .put(storage_handlers::upsert_share_permission)
+                .delete(storage_handlers::remove_share_permission),
         )
         .route(
             "/api/client/storage/starred",
@@ -58,6 +76,10 @@ pub fn build_client_router(state: AppState) -> Router {
         .route(
             "/api/client/storage/files",
             put(storage_handlers::rename_file).delete(storage_handlers::delete_file),
+        )
+        .route(
+            "/api/client/storage/files/metadata",
+            get(storage_handlers::file_metadata),
         )
         .route(
             "/api/client/storage/trash/folders",

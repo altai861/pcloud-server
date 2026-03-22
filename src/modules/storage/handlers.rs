@@ -5,12 +5,18 @@ use crate::{
         auth::service,
         storage::{
             dto::{
-                StorageDeleteResponse, StorageFolderMetadataResponse, StorageListResponse,
-                StorageMutationResponse, StorageRestoreResponse,
+                ShareMutationResponse, ShareableUserDto, ShareableUsersResponse,
+                SharedPermissionTargetDto, SharedPermissionsResponse, SharedResourceEntryDto,
+                SharedResourcesListResponse, StorageDeleteResponse, StorageFileMetadataResponse,
+                StorageFolderMetadataResponse, StorageListResponse, StorageMutationResponse,
+                StorageRestoreResponse,
             },
             service::{
-                self as storage_service, CreateFolderInput, RenameStorageInput, SetStarredInput,
-                StorageEntryKind, StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
+                self as storage_service, CreateFolderInput, DownloadFileQuery,
+                RemoveSharePermissionInput, RenameStorageInput, SetStarredInput,
+                SharePermissionInput, SharePermissionsQuery, StorageEntryKind,
+                StorageFileMetadataResult, StorageFolderMetadataResult, StorageListQuery,
+                UploadFileInput,
             },
         },
     },
@@ -42,6 +48,7 @@ const MAX_UPLOAD_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 #[serde(rename_all = "camelCase")]
 pub struct ListStorageRequest {
     pub path: Option<String>,
+    pub folder_id: Option<i64>,
     pub q: Option<String>,
 }
 
@@ -49,6 +56,7 @@ pub struct ListStorageRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateFolderRequest {
     pub parent_path: Option<String>,
+    pub parent_folder_id: Option<i64>,
     pub name: String,
 }
 
@@ -56,12 +64,20 @@ pub struct CreateFolderRequest {
 #[serde(rename_all = "camelCase")]
 pub struct FolderMetadataRequest {
     pub path: Option<String>,
+    pub folder_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMetadataRequest {
+    pub file_id: i64,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadFileRequest {
     pub path: Option<String>,
+    pub file_id: Option<i64>,
     pub access_token: Option<String>,
 }
 
@@ -75,6 +91,7 @@ pub struct DeleteStorageRequest {
 #[serde(rename_all = "camelCase")]
 pub struct RenameStorageRequest {
     pub path: Option<String>,
+    pub resource_id: Option<i64>,
     pub new_name: String,
 }
 
@@ -84,6 +101,36 @@ pub struct SetStarredRequest {
     pub path: Option<String>,
     pub entry_type: String,
     pub starred: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharePermissionsRequest {
+    pub entry_type: String,
+    pub resource_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMutationRequest {
+    pub entry_type: String,
+    pub resource_id: i64,
+    pub target_user_id: i64,
+    pub privilege_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRemoveRequest {
+    pub entry_type: String,
+    pub resource_id: i64,
+    pub target_user_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareUsersSearchRequest {
+    pub q: Option<String>,
 }
 
 pub async fn list(
@@ -98,6 +145,7 @@ pub async fn list(
         &current_user,
         StorageListQuery {
             path: query.path,
+            folder_id: query.folder_id,
             search: query.q,
         },
     )
@@ -105,7 +153,10 @@ pub async fn list(
 
     Ok(Json(StorageListResponse {
         current_path: result.current_path,
+        current_folder_id: result.current_folder_id,
+        parent_folder_id: result.parent_folder_id,
         parent_path: result.parent_path,
+        current_privilege: result.current_privilege,
         entries: result.entries,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
@@ -126,6 +177,7 @@ pub async fn list_trash(
         &current_user,
         StorageListQuery {
             path: None,
+            folder_id: None,
             search: query.q,
         },
     )
@@ -133,7 +185,10 @@ pub async fn list_trash(
 
     Ok(Json(StorageListResponse {
         current_path: result.current_path,
+        current_folder_id: result.current_folder_id,
+        parent_folder_id: result.parent_folder_id,
         parent_path: result.parent_path,
+        current_privilege: result.current_privilege,
         entries: result.entries,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
@@ -154,6 +209,7 @@ pub async fn list_starred(
         &current_user,
         StorageListQuery {
             path: None,
+            folder_id: None,
             search: query.q,
         },
     )
@@ -161,13 +217,29 @@ pub async fn list_starred(
 
     Ok(Json(StorageListResponse {
         current_path: result.current_path,
+        current_folder_id: result.current_folder_id,
+        parent_folder_id: result.parent_folder_id,
         parent_path: result.parent_path,
+        current_privilege: result.current_privilege,
         entries: result.entries,
         total_storage_limit_bytes: result.total_storage_limit_bytes,
         total_storage_used_bytes: result.total_storage_used_bytes,
         user_storage_quota_bytes: result.user_storage_quota_bytes,
         user_storage_used_bytes: result.user_storage_used_bytes,
     }))
+}
+
+pub async fn file_metadata(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FileMetadataRequest>,
+) -> ApiResult<Json<StorageFileMetadataResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let payload =
+        storage_service::get_file_metadata(&state.pool, &current_user, query.file_id).await?;
+
+    Ok(Json(map_file_metadata_response(payload)))
 }
 
 pub async fn folder_metadata(
@@ -177,8 +249,13 @@ pub async fn folder_metadata(
 ) -> ApiResult<Json<StorageFolderMetadataResponse>> {
     let current_user = service::authenticate_headers(&state.pool, &headers).await?;
 
-    let result =
-        storage_service::get_folder_metadata(&state.pool, &current_user, query.path).await?;
+    let result = storage_service::get_folder_metadata(
+        &state.pool,
+        &current_user,
+        query.path,
+        query.folder_id,
+    )
+    .await?;
 
     Ok(Json(map_folder_metadata_response(result)))
 }
@@ -195,6 +272,7 @@ pub async fn create_folder(
         &current_user,
         CreateFolderInput {
             parent_path: payload.parent_path,
+            parent_folder_id: payload.parent_folder_id,
             name: payload.name,
         },
     )
@@ -218,6 +296,7 @@ pub async fn rename_folder(
         &current_user,
         RenameStorageInput {
             path: payload.path,
+            resource_id: payload.resource_id,
             new_name: payload.new_name,
         },
     )
@@ -241,6 +320,7 @@ pub async fn rename_file(
         &current_user,
         RenameStorageInput {
             path: payload.path,
+            resource_id: payload.resource_id,
             new_name: payload.new_name,
         },
     )
@@ -395,8 +475,16 @@ pub async fn download_file(
         ));
     };
 
-    let file =
-        storage_service::resolve_file_download(&state.pool, &current_user, query.path).await?;
+    let file = storage_service::resolve_file_download(
+        &state.pool,
+        &current_user,
+        DownloadFileQuery {
+            path: query.path,
+            file_id: query.file_id,
+        },
+    )
+    .await?;
+
     let file_handle = File::open(&file.absolute_path).await.map_err(|_| {
         crate::error::ApiError::internal_with_context("Failed to open file for download")
     })?;
@@ -444,6 +532,7 @@ pub async fn upload_file(
     let current_user = service::authenticate_headers(&state.pool, &headers).await?;
 
     let mut folder_path: Option<String> = None;
+    let mut folder_id: Option<i64> = None;
     let mut file_name: Option<String> = None;
     let mut content_type: Option<String> = None;
     let mut temp_file_path: Option<PathBuf> = None;
@@ -458,6 +547,17 @@ pub async fn upload_file(
                 folder_path = Some(field.text().await.map_err(|_| {
                     crate::error::ApiError::BadRequest("Invalid target folder path".to_owned())
                 })?);
+            }
+            Some("folderId") => {
+                let parsed = field.text().await.map_err(|_| {
+                    crate::error::ApiError::BadRequest("Invalid target folder id".to_owned())
+                })?;
+
+                let value = parsed.trim().parse::<i64>().map_err(|_| {
+                    crate::error::ApiError::BadRequest("Invalid target folder id".to_owned())
+                })?;
+
+                folder_id = Some(value);
             }
             Some("file") => {
                 let detected_file_name = field
@@ -527,6 +627,7 @@ pub async fn upload_file(
         &current_user,
         UploadFileInput {
             folder_path,
+            folder_id,
             file_name,
             content_type,
             temp_file_path: temp_file_path.clone(),
@@ -543,6 +644,138 @@ pub async fn upload_file(
     Ok(Json(StorageMutationResponse {
         message: "File uploaded successfully".to_owned(),
         entry,
+    }))
+}
+
+pub async fn list_shared(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ShareUsersSearchRequest>,
+) -> ApiResult<Json<SharedResourcesListResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let entries =
+        storage_service::list_shared_with_user(&state.pool, &current_user, query.q).await?;
+
+    Ok(Json(SharedResourcesListResponse {
+        entries: entries
+            .into_iter()
+            .map(|entry| SharedResourceEntryDto {
+                resource_type: entry.resource_type,
+                resource_id: entry.resource_id,
+                name: entry.name,
+                path: entry.path,
+                owner_user_id: entry.owner_user_id,
+                owner_username: entry.owner_username,
+                privilege_type: entry.privilege_type,
+                date_shared_unix_ms: entry.date_shared_unix_ms,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn list_share_permissions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<SharePermissionsRequest>,
+) -> ApiResult<Json<SharedPermissionsResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let entry_type = parse_entry_type(&query.entry_type)?;
+
+    let payload = storage_service::list_resource_permissions(
+        &state.pool,
+        &current_user,
+        SharePermissionsQuery {
+            resource_type: entry_type,
+            resource_id: query.resource_id,
+        },
+    )
+    .await?;
+
+    Ok(Json(SharedPermissionsResponse {
+        resource_type: payload.resource_type,
+        resource_id: payload.resource_id,
+        resource_name: payload.resource_name,
+        entries: payload
+            .entries
+            .into_iter()
+            .map(|entry| SharedPermissionTargetDto {
+                user_id: entry.user_id,
+                username: entry.username,
+                full_name: entry.full_name,
+                privilege_type: entry.privilege_type,
+                created_at_unix_ms: entry.created_at_unix_ms,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn upsert_share_permission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ShareMutationRequest>,
+) -> ApiResult<Json<ShareMutationResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let entry_type = parse_entry_type(&payload.entry_type)?;
+
+    storage_service::upsert_share_permission(
+        &state.pool,
+        &current_user,
+        SharePermissionInput {
+            resource_type: entry_type,
+            resource_id: payload.resource_id,
+            target_user_id: payload.target_user_id,
+            privilege_type: payload.privilege_type,
+        },
+    )
+    .await?;
+
+    Ok(Json(ShareMutationResponse {
+        message: "Sharing permissions updated".to_owned(),
+    }))
+}
+
+pub async fn remove_share_permission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ShareRemoveRequest>,
+) -> ApiResult<Json<ShareMutationResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let entry_type = parse_entry_type(&query.entry_type)?;
+
+    storage_service::remove_share_permission(
+        &state.pool,
+        &current_user,
+        RemoveSharePermissionInput {
+            resource_type: entry_type,
+            resource_id: query.resource_id,
+            target_user_id: query.target_user_id,
+        },
+    )
+    .await?;
+
+    Ok(Json(ShareMutationResponse {
+        message: "Permission removed".to_owned(),
+    }))
+}
+
+pub async fn search_shareable_users(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ShareUsersSearchRequest>,
+) -> ApiResult<Json<ShareableUsersResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+    let users =
+        storage_service::search_shareable_users(&state.pool, &current_user, query.q).await?;
+
+    Ok(Json(ShareableUsersResponse {
+        users: users
+            .into_iter()
+            .map(|user| ShareableUserDto {
+                user_id: user.user_id,
+                username: user.username,
+                full_name: user.full_name,
+            })
+            .collect(),
     }))
 }
 
@@ -581,11 +814,32 @@ fn map_folder_metadata_response(
     StorageFolderMetadataResponse {
         name: payload.name,
         path: payload.path,
+        owner_username: payload.owner_username,
+        current_privilege: payload.current_privilege,
         created_at_unix_ms: payload.created_at_unix_ms,
         modified_at_unix_ms: payload.modified_at_unix_ms,
         folder_count: payload.folder_count,
         file_count: payload.file_count,
         total_item_count: payload.total_item_count,
+    }
+}
+
+fn map_file_metadata_response(payload: StorageFileMetadataResult) -> StorageFileMetadataResponse {
+    StorageFileMetadataResponse {
+        id: payload.id,
+        folder_id: payload.folder_id,
+        folder_path: payload.folder_path,
+        owner_user_id: payload.owner_user_id,
+        owner_username: payload.owner_username,
+        current_privilege: payload.current_privilege,
+        name: payload.name,
+        path: payload.path,
+        size_bytes: payload.size_bytes,
+        mime_type: payload.mime_type,
+        extension: payload.extension,
+        is_starred: payload.is_starred,
+        created_at_unix_ms: payload.created_at_unix_ms,
+        modified_at_unix_ms: payload.modified_at_unix_ms,
     }
 }
 

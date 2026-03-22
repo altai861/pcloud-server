@@ -363,6 +363,12 @@ button {
   object-fit: contain;
 }
 
+.star-cell-placeholder {
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+
 .more-cell:hover {
   background: color-mix(in srgb, var(--focus) 10%, var(--panel));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 30%, var(--line));
@@ -428,6 +434,11 @@ button {
 .entry-context-menu button.danger:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--theme-danger, #c61e1e) 55%, var(--line-strong));
   background: color-mix(in srgb, var(--theme-danger, #c61e1e) 10%, var(--panel));
+}
+
+.entry-context-menu button.danger.subtle {
+  color: var(--text);
+  border-color: var(--line-strong);
 }
 
 .rename-overlay {
@@ -646,6 +657,209 @@ button {
   font-size: 0.9rem;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.share-modal {
+  width: min(620px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--theme-shadow);
+  padding: 0.95rem;
+  display: grid;
+  gap: 0.7rem;
+  max-height: min(86vh, 760px);
+  overflow: auto;
+}
+
+.share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.share-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.share-header button {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--input);
+  min-height: 32px;
+  padding: 0 0.68rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.share-resource-name {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.share-list {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 0.4rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.share-row {
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 9px;
+  background: var(--panel);
+  padding: 0.4rem 0.45rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.share-user-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.share-user-main strong {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-user-main span {
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-row select,
+.share-add select {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 0.48rem;
+  background: var(--input);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.84rem;
+}
+
+.share-row button,
+.share-add-actions button,
+.share-footer button {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 0.58rem;
+  background: var(--input);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.share-row button.danger {
+  color: var(--theme-danger, #c61e1e);
+  border-color: color-mix(in srgb, var(--theme-danger, #c61e1e) 30%, var(--line));
+}
+
+.share-add {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.6rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.share-add label {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.share-add label span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.share-add input {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  min-height: 36px;
+  padding: 0 0.58rem;
+  background: var(--input);
+  color: var(--text);
+  font-size: 0.86rem;
+  font-family: inherit;
+}
+
+.share-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.share-search-results {
+  max-height: 160px;
+  overflow: auto;
+  display: grid;
+  gap: 0.3rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  padding-top: 0.4rem;
+}
+
+.share-search-results button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 0.36rem 0.5rem;
+  text-align: left;
+  display: grid;
+  gap: 0.1rem;
+  cursor: pointer;
+}
+
+.share-search-results button.active {
+  border-color: color-mix(in srgb, var(--focus) 45%, var(--line));
+  background: color-mix(in srgb, var(--focus) 10%, var(--panel));
+}
+
+.share-search-results strong {
+  font-size: 0.86rem;
+}
+
+.share-search-results span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.share-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.share-footer .primary {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 18%, var(--input));
 }
 
 :host-context([data-theme='dark']) .view-toggle img,

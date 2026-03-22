@@ -7,6 +7,7 @@ import { HomePageComponent } from './components/home-page/home-page.component';
 import { LoginPageComponent } from './components/login-page/login-page.component';
 import { SharedPageComponent } from './components/shared-page/shared-page.component';
 import { StarredPageComponent } from './components/starred-page/starred-page.component';
+import { StorageFilePageComponent } from './components/storage-file-page/storage-file-page.component';
 import { StorageHomeComponent } from './components/storage-home/storage-home.component';
 import { TrashPageComponent } from './components/trash-page/trash-page.component';
 import { WorkspaceProfileComponent } from './components/workspace-profile/workspace-profile.component';
@@ -79,7 +80,21 @@ export const routes: Routes = [
       },
       {
         path: 'storage',
-        component: StorageHomeComponent
+        children: [
+          {
+            path: '',
+            pathMatch: 'full',
+            redirectTo: 'folders/root'
+          },
+          {
+            path: 'folders/:folderId',
+            component: StorageHomeComponent
+          },
+          {
+            path: 'files/:fileId',
+            component: StorageFilePageComponent
+          }
+        ]
       },
       {
         path: 'profile',

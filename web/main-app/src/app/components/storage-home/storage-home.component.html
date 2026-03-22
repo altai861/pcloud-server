@@ -1,7 +1,7 @@
 <section class="storage-content">
   <section class="path-and-view">
     <div class="breadcrumbs">
-      <button type="button" *ngFor="let item of breadcrumbs; let isLast = last" [disabled]="isLast"
+      <button type="button" *ngFor="let item of breadcrumbs; let isLast = last" [disabled]="isLast || !item.canOpen"
         (click)="openPath(item.path)">
         {{ item.label }}
       </button>
@@ -77,7 +77,7 @@
     </p>
 
     <div class="list-row" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
-      <button class="name-cell" type="button" (click)="openEntry(entry)">
+      <button class="name-cell" type="button" (click)="openEntry(entry)" (dblclick)="onEntryDoubleClick(entry)">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </button>
@@ -85,16 +85,18 @@
       <span class="owner-cell">
         <img
           class="owner-avatar"
-          [class.default-avatar]="!ownerProfileImageSrc"
-          [src]="ownerProfileImageSrc ?? 'profile.png'"
+          [class.default-avatar]="isDefaultOwnerAvatar(entry.ownerUserId)"
+          [src]="ownerAvatarSrc(entry.ownerUserId)"
+          (error)="onOwnerAvatarError($event, entry.ownerUserId)"
           alt=""
         />
-        <span>me</span>
+        <span>{{ entry.ownerUsername }}</span>
       </span>
 
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
       <span>{{ formatSize(entry.sizeBytes) }}</span>
       <button
+        *ngIf="currentPrivilege === 'owner'; else sharedStarPlaceholder"
         type="button"
         class="star-cell"
         [class.active]="entry.isStarred"
@@ -104,6 +106,9 @@
       >
         <img [src]="entry.isStarred ? 'star-filled.png' : 'starred.png'" alt="" />
       </button>
+      <ng-template #sharedStarPlaceholder>
+        <span class="star-cell-placeholder" aria-hidden="true"></span>
+      </ng-template>
       <button type="button" class="more-cell" (click)="openEntryMenuFromButton($event, entry)">
         <img src="three-vertical-dots.png" alt="More" />
       </button>
@@ -118,7 +123,7 @@
     </p>
 
     <article class="grid-item" *ngFor="let entry of entries" (contextmenu)="openEntryContextMenu($event, entry)">
-      <button type="button" class="grid-name" (click)="openEntry(entry)">
+      <button type="button" class="grid-name" (click)="openEntry(entry)" (dblclick)="onEntryDoubleClick(entry)">
         <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
         <span>{{ entry.name }}</span>
       </button>
@@ -136,13 +141,16 @@
   (click)="$event.stopPropagation()"
   (contextmenu)="$event.preventDefault()"
 >
-  <button type="button" (click)="onRenameEntryClick($event)">
+  <button type="button" (click)="onRenameEntryClick($event)" [disabled]="isEntryRenameDisabled">
     Rename
+  </button>
+  <button type="button" (click)="onShareEntryClick($event)" [disabled]="isEntryShareDisabled">
+    Share
   </button>
   <button type="button" (click)="onDownloadEntryClick($event)" [disabled]="isEntryDownloadDisabled">
     Download
   </button>
-  <button type="button" class="danger" (click)="onDeleteEntryClick($event)">
+  <button type="button" class="danger" (click)="onDeleteEntryClick($event)" [disabled]="isEntryEditDisabled">
     Move to Trash
   </button>
 </section>
@@ -176,6 +184,83 @@
   </article>
 </section>
 
+<section class="share-overlay" *ngIf="isShareModalOpen" (click)="closeShareModal()">
+  <article class="share-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <header class="share-header">
+      <h2>Share {{ shareModalEntry?.entryType ?? 'resource' }}</h2>
+      <button type="button" (click)="closeShareModal()">Close</button>
+    </header>
+
+    <p class="share-resource-name" *ngIf="shareModalEntry">{{ shareModalEntry.name }}</p>
+    <p class="status-text" *ngIf="sharePermissionsLoading">Loading permissions...</p>
+    <p class="status-text error" *ngIf="shareModalErrorMessage">{{ shareModalErrorMessage }}</p>
+
+    <section class="share-list" *ngIf="!sharePermissionsLoading">
+      <article class="share-row" *ngFor="let target of sharePermissions">
+        <div class="share-user-main">
+          <strong>{{ target.username }}</strong>
+          <span>{{ target.fullName }}</span>
+        </div>
+
+        <select
+          [value]="target.privilegeType"
+          [disabled]="shareMutationLoading"
+          (change)="updateSharePermission(target, $any($event.target).value)"
+        >
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+        </select>
+
+        <button type="button" class="danger subtle" [disabled]="shareMutationLoading" (click)="removeShareTarget(target)">
+          Remove
+        </button>
+      </article>
+    </section>
+
+    <section class="share-add">
+      <label>
+        <span>Search user</span>
+        <input
+          type="text"
+          [value]="shareUserSearchTerm"
+          [disabled]="shareMutationLoading || shareUsersLoading"
+          (input)="shareUserSearchTerm = $any($event.target).value"
+          placeholder="Username or full name"
+        />
+      </label>
+
+      <div class="share-add-actions">
+        <button type="button" (click)="searchShareableUsers()" [disabled]="shareUsersLoading || shareMutationLoading">
+          {{ shareUsersLoading ? 'Searching...' : 'Search' }}
+        </button>
+
+        <select [value]="selectedSharePrivilege" (change)="selectedSharePrivilege = $any($event.target).value">
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+        </select>
+      </div>
+
+      <section class="share-search-results" *ngIf="shareUsers.length > 0">
+        <button
+          type="button"
+          *ngFor="let user of shareUsers"
+          [class.active]="selectedShareUserId === user.userId"
+          (click)="selectShareUser(user)"
+        >
+          <strong>{{ user.username }}</strong>
+          <span>{{ user.fullName }}</span>
+        </button>
+      </section>
+
+      <footer class="share-footer">
+        <button type="button" class="primary" [disabled]="selectedShareUserId === null || shareMutationLoading" (click)="grantSharePermission()">
+          {{ shareMutationLoading ? 'Saving...' : 'Grant Permission' }}
+        </button>
+      </footer>
+    </section>
+  </article>
+</section>
+
 <section class="folder-metadata-overlay" *ngIf="isFolderMetadataOpen" (click)="closeFolderMetadata()">
   <article
     class="folder-metadata-modal"
@@ -200,6 +285,12 @@
 
       <dt>Path</dt>
       <dd>{{ folderMetadata.path }}</dd>
+
+      <dt>Owner</dt>
+      <dd>{{ folderMetadata.ownerUsername }}</dd>
+
+      <dt>Your access</dt>
+      <dd>{{ folderMetadata.currentPrivilege }}</dd>
 
       <dt>Created</dt>
       <dd>{{ formatDateTime(folderMetadata.createdAtUnixMs) }}</dd>
