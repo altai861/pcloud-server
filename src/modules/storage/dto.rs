@@ -92,6 +92,15 @@ pub struct StorageRestoreResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StorageMoveResponse {
+    pub message: String,
+    pub moved_count: i64,
+    pub destination_folder_id: i64,
+    pub destination_path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SharedResourceEntryDto {
     pub resource_type: String,
     pub resource_id: i64,

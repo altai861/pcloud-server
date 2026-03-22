@@ -9,13 +9,16 @@ use crate::{
                 SharedPermissionTargetDto, SharedPermissionsResponse, SharedResourceEntryDto,
                 SharedResourcesListResponse, SearchResourceEntryDto, SearchResourcesResponse,
                 StorageDeleteResponse, StorageFileMetadataResponse, StorageFolderMetadataResponse,
-                StorageListResponse, StorageMutationResponse, StorageRestoreResponse,
+                StorageListResponse, StorageMoveResponse, StorageMutationResponse,
+                StorageRestoreResponse,
             },
             service::{
                 self as storage_service, BatchDownloadItemInput, CreateFolderInput,
-                DownloadFileQuery, RemoveSharePermissionInput, RenameStorageInput, SetStarredInput,
-                SharePermissionInput, SharePermissionsQuery, StorageEntryKind, StorageFileMetadataResult,
-                StorageFolderMetadataResult, StorageListQuery, UploadFileInput,
+                DownloadFileQuery, MoveStorageInput, MoveStorageItemInput,
+                RemoveSharePermissionInput, RenameStorageInput, SetStarredInput,
+                SharePermissionInput, SharePermissionsQuery, StorageEntryKind,
+                StorageFileMetadataResult, StorageFolderMetadataResult, StorageListQuery,
+                UploadFileInput,
             },
         },
     },
@@ -100,6 +103,20 @@ pub struct BatchDownloadRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchDownloadItemRequest {
+    pub entry_type: String,
+    pub resource_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveStorageRequest {
+    pub destination_folder_id: i64,
+    pub items: Vec<MoveStorageItemRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveStorageItemRequest {
     pub entry_type: String,
     pub resource_id: i64,
 }
@@ -357,6 +374,39 @@ pub async fn create_folder(
     Ok(Json(StorageMutationResponse {
         message: "Folder created successfully".to_owned(),
         entry,
+    }))
+}
+
+pub async fn move_entries(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<MoveStorageRequest>,
+) -> ApiResult<Json<StorageMoveResponse>> {
+    let current_user = service::authenticate_headers(&state.pool, &headers).await?;
+
+    let mut items = Vec::new();
+    for item in payload.items {
+        items.push(MoveStorageItemInput {
+            resource_type: parse_entry_type(&item.entry_type)?,
+            resource_id: item.resource_id,
+        });
+    }
+
+    let result = storage_service::move_storage_entries(
+        &state.pool,
+        &current_user,
+        MoveStorageInput {
+            destination_folder_id: payload.destination_folder_id,
+            items,
+        },
+    )
+    .await?;
+
+    Ok(Json(StorageMoveResponse {
+        message: "Items moved successfully".to_owned(),
+        moved_count: result.moved_count,
+        destination_folder_id: result.destination_folder_id,
+        destination_path: result.destination_path,
     }))
 }
 

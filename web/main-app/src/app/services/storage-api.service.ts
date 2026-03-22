@@ -11,6 +11,7 @@ import { StorageDeleteResponseDto } from '../dto/storage-delete-response.dto';
 import { StorageFileMetadataDto } from '../dto/storage-file-metadata.dto';
 import { StorageFolderMetadataDto } from '../dto/storage-folder-metadata.dto';
 import { StorageListResponseDto } from '../dto/storage-list-response.dto';
+import { StorageMoveResponseDto } from '../dto/storage-move-response.dto';
 import { StorageMutationResponseDto } from '../dto/storage-mutation-response.dto';
 import { StorageRestoreResponseDto } from '../dto/storage-restore-response.dto';
 
@@ -212,6 +213,31 @@ export class StorageApiService {
     return this.http.put<StorageMutationResponseDto>(
       this.buildUrl(apiBaseUrl, '/api/client/storage/files'),
       payload,
+      {
+        headers: this.authHeaders(accessToken)
+      }
+    );
+  }
+
+  moveResources(
+    apiBaseUrl: string,
+    accessToken: string,
+    destinationFolderId: number,
+    items: Array<{ entryType: 'folder' | 'file'; resourceId: number }>
+  ): Observable<StorageMoveResponseDto> {
+    const normalizedItems = items
+      .filter((item) => Number.isFinite(item.resourceId) && item.resourceId > 0)
+      .map((item) => ({
+        entryType: item.entryType,
+        resourceId: Math.trunc(item.resourceId)
+      }));
+
+    return this.http.post<StorageMoveResponseDto>(
+      this.buildUrl(apiBaseUrl, '/api/client/storage/move'),
+      {
+        destinationFolderId: Math.trunc(destinationFolderId),
+        items: normalizedItems
+      },
       {
         headers: this.authHeaders(accessToken)
       }

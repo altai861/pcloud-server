@@ -59,6 +59,18 @@ pub struct BatchDownloadItemInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct MoveStorageInput {
+    pub destination_folder_id: i64,
+    pub items: Vec<MoveStorageItemInput>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MoveStorageItemInput {
+    pub resource_type: StorageEntryKind,
+    pub resource_id: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct RenameStorageInput {
     pub path: Option<String>,
     pub resource_id: Option<i64>,
@@ -233,6 +245,25 @@ struct RenameFolderRow {
 }
 
 #[derive(Debug, FromRow)]
+struct MoveFolderRow {
+    id: i64,
+    owner_user_id: i64,
+    name: String,
+    path: String,
+    parent_folder_id: Option<i64>,
+}
+
+#[derive(Debug, FromRow)]
+struct MoveFileRow {
+    id: i64,
+    owner_user_id: i64,
+    name: String,
+    storage_path: String,
+    folder_id: i64,
+    folder_path: String,
+}
+
+#[derive(Debug, FromRow)]
 struct SharedResourceRow {
     resource_type: String,
     resource_id: i64,
@@ -356,6 +387,13 @@ pub struct BatchDownloadResult {
     pub archive_name: String,
     pub archive_path: PathBuf,
     pub archive_size_bytes: u64,
+}
+
+#[derive(Debug)]
+pub struct MoveStorageResult {
+    pub moved_count: i64,
+    pub destination_folder_id: i64,
+    pub destination_path: String,
 }
 
 #[derive(Debug)]
@@ -1905,6 +1943,327 @@ pub async fn upload_file(
     Ok(storage_entry_row_to_dto(inserted))
 }
 
+pub async fn move_storage_entries(
+    pool: &PgPool,
+    current_user: &AuthenticatedUser,
+    input: MoveStorageInput,
+) -> Result<MoveStorageResult, ApiError> {
+    if input.destination_folder_id <= 0 {
+        return Err(ApiError::BadRequest(
+            "destinationFolderId must be a positive integer".to_owned(),
+        ));
+    }
+
+    if input.items.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one item must be selected for move".to_owned(),
+        ));
+    }
+
+    if input.items.len() > 500 {
+        return Err(ApiError::BadRequest(
+            "Move request is too large (maximum is 500 items)".to_owned(),
+        ));
+    }
+
+    let settings = load_system_storage_settings(pool).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| ApiError::internal_with_context("Failed to start move transaction"))?;
+
+    let destination_folder =
+        load_owned_folder_for_move_by_id_tx(&mut tx, current_user.user.id, input.destination_folder_id)
+            .await?;
+
+    let mut dedupe = HashSet::<String>::new();
+    let mut requested_items = Vec::<MoveStorageItemInput>::new();
+    for item in input.items {
+        if item.resource_id <= 0 {
+            return Err(ApiError::BadRequest(
+                "resourceId must be a positive integer".to_owned(),
+            ));
+        }
+
+        let item_type = match item.resource_type {
+            StorageEntryKind::Folder => "folder",
+            StorageEntryKind::File => "file",
+        };
+
+        let key = format!("{item_type}:{}", item.resource_id);
+        if dedupe.insert(key) {
+            requested_items.push(item);
+        }
+    }
+
+    if requested_items.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one unique item must be selected for move".to_owned(),
+        ));
+    }
+
+    let mut folder_sources = Vec::<MoveFolderRow>::new();
+    let mut file_sources = Vec::<MoveFileRow>::new();
+
+    for item in requested_items {
+        match item.resource_type {
+            StorageEntryKind::Folder => {
+                let folder =
+                    load_owned_folder_for_move_by_id_tx(&mut tx, current_user.user.id, item.resource_id)
+                        .await?;
+                folder_sources.push(folder);
+            }
+            StorageEntryKind::File => {
+                let file =
+                    load_owned_file_for_move_by_id_tx(&mut tx, current_user.user.id, item.resource_id)
+                        .await?;
+                file_sources.push(file);
+            }
+        }
+    }
+
+    folder_sources.sort_by(|left, right| {
+        left.path
+            .len()
+            .cmp(&right.path.len())
+            .then(left.path.cmp(&right.path))
+            .then(left.id.cmp(&right.id))
+    });
+
+    let mut effective_folders = Vec::<MoveFolderRow>::new();
+    for folder in folder_sources {
+        let covered_by_parent_selection = effective_folders
+            .iter()
+            .any(|ancestor| is_descendant_path(&folder.path, &ancestor.path));
+        if covered_by_parent_selection {
+            continue;
+        }
+        effective_folders.push(folder);
+    }
+
+    let mut effective_files = Vec::<MoveFileRow>::new();
+    for file in file_sources {
+        let file_path = join_child_path(&normalize_db_path(&file.folder_path), &file.name);
+        let covered_by_folder_selection = effective_folders
+            .iter()
+            .any(|folder| is_descendant_path(&file_path, &folder.path));
+        if covered_by_folder_selection {
+            continue;
+        }
+        effective_files.push(file);
+    }
+
+    let mut filesystem_moves = Vec::<(PathBuf, PathBuf)>::new();
+    let user_root = resolve_user_storage_root(&settings.storage_root_path, current_user.user.id);
+    let mut moved_count = 0_i64;
+
+    for folder in &effective_folders {
+        if folder.parent_folder_id.is_none() {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::BadRequest(
+                "Root folder cannot be moved".to_owned(),
+            ));
+        }
+
+        if folder.id == destination_folder.id {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::BadRequest(
+                "Folder cannot be moved into itself".to_owned(),
+            ));
+        }
+
+        if is_descendant_path(&destination_folder.path, &folder.path) {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::BadRequest(
+                "Folder cannot be moved into its child folder".to_owned(),
+            ));
+        }
+
+        if folder.parent_folder_id == Some(destination_folder.id) {
+            continue;
+        }
+
+        ensure_name_not_taken_tx(&mut tx, destination_folder.id, &folder.name).await?;
+
+        let new_folder_path = join_child_path(&destination_folder.path, &folder.name);
+        let old_folder_prefix = format!("{}/%", folder.path.trim_end_matches('/'));
+        let old_storage_prefix = logical_path_to_storage_prefix(folder.owner_user_id, &folder.path);
+        let new_storage_prefix = logical_path_to_storage_prefix(folder.owner_user_id, &new_folder_path);
+        let old_storage_prefix_like = format!("{}/%", old_storage_prefix.trim_end_matches('/'));
+
+        let old_folder_abs = user_root.join(logical_path_to_relative_path(&folder.path));
+        let new_folder_abs = user_root.join(logical_path_to_relative_path(&new_folder_path));
+
+        if new_folder_abs.exists() {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::Conflict(
+                "An item with the same name already exists in this folder".to_owned(),
+            ));
+        }
+
+        if fs::rename(&old_folder_abs, &new_folder_abs).is_err() {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::internal_with_context(
+                "Failed to move folder on the storage filesystem",
+            ));
+        }
+        filesystem_moves.push((old_folder_abs.clone(), new_folder_abs.clone()));
+
+        if let Err(error) = sqlx::query(
+            r#"
+            UPDATE folders
+            SET parent_folder_id = $3,
+                updated_at = NOW()
+            WHERE id = $1
+              AND owner_user_id = $2
+              AND is_deleted = false
+            "#,
+        )
+        .bind(folder.id)
+        .bind(folder.owner_user_id)
+        .bind(destination_folder.id)
+        .execute(&mut *tx)
+        .await
+        {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(map_storage_write_error(error));
+        }
+
+        if let Err(error) = sqlx::query(
+            r#"
+            UPDATE folders
+            SET path = CASE
+                WHEN path = $2 THEN $3
+                ELSE $3 || SUBSTRING(path FROM CHAR_LENGTH($2) + 1)
+            END,
+                updated_at = NOW()
+            WHERE owner_user_id = $1
+              AND is_deleted = false
+              AND (
+                  path = $2
+                  OR path LIKE $4
+              )
+            "#,
+        )
+        .bind(folder.owner_user_id)
+        .bind(&folder.path)
+        .bind(&new_folder_path)
+        .bind(&old_folder_prefix)
+        .execute(&mut *tx)
+        .await
+        {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(map_storage_write_error(error));
+        }
+
+        if let Err(error) = sqlx::query(
+            r#"
+            UPDATE files
+            SET storage_path = CASE
+                WHEN storage_path = $2 THEN $3
+                ELSE $3 || SUBSTRING(storage_path FROM CHAR_LENGTH($2) + 1)
+            END,
+                updated_at = NOW()
+            WHERE owner_user_id = $1
+              AND is_deleted = false
+              AND (
+                  storage_path = $2
+                  OR storage_path LIKE $4
+              )
+            "#,
+        )
+        .bind(folder.owner_user_id)
+        .bind(&old_storage_prefix)
+        .bind(&new_storage_prefix)
+        .bind(&old_storage_prefix_like)
+        .execute(&mut *tx)
+        .await
+        {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(map_storage_write_error(error));
+        }
+
+        moved_count += 1;
+    }
+
+    for file in &effective_files {
+        if file.folder_id == destination_folder.id {
+            continue;
+        }
+
+        ensure_name_not_taken_tx(&mut tx, destination_folder.id, &file.name).await?;
+
+        let old_storage_rel = PathBuf::from(file.storage_path.trim_start_matches('/'));
+        let new_storage_rel = Path::new("users")
+            .join(file.owner_user_id.to_string())
+            .join(logical_path_to_relative_path(&destination_folder.path))
+            .join(&file.name);
+
+        let new_storage_path = format!("/{}", new_storage_rel.to_string_lossy().replace('\\', "/"));
+        let old_absolute_path = PathBuf::from(&settings.storage_root_path).join(&old_storage_rel);
+        let new_absolute_path = PathBuf::from(&settings.storage_root_path).join(&new_storage_rel);
+
+        if new_absolute_path.exists() {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::Conflict(
+                "An item with the same name already exists in this folder".to_owned(),
+            ));
+        }
+
+        if fs::rename(&old_absolute_path, &new_absolute_path).is_err() {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(ApiError::internal_with_context(
+                "Failed to move file on the storage filesystem",
+            ));
+        }
+        filesystem_moves.push((old_absolute_path.clone(), new_absolute_path.clone()));
+
+        if let Err(error) = sqlx::query(
+            r#"
+            UPDATE files
+            SET folder_id = $3,
+                storage_path = $4,
+                updated_at = NOW()
+            WHERE id = $1
+              AND owner_user_id = $2
+              AND is_deleted = false
+            "#,
+        )
+        .bind(file.id)
+        .bind(file.owner_user_id)
+        .bind(destination_folder.id)
+        .bind(&new_storage_path)
+        .execute(&mut *tx)
+        .await
+        {
+            rollback_filesystem_moves(&filesystem_moves);
+            return Err(map_storage_write_error(error));
+        }
+
+        moved_count += 1;
+    }
+
+    if moved_count == 0 {
+        rollback_filesystem_moves(&filesystem_moves);
+        return Err(ApiError::BadRequest(
+            "No items were moved. Choose a different destination".to_owned(),
+        ));
+    }
+
+    if tx.commit().await.is_err() {
+        rollback_filesystem_moves(&filesystem_moves);
+        return Err(ApiError::internal_with_context(
+            "Failed to commit move transaction",
+        ));
+    }
+
+    Ok(MoveStorageResult {
+        moved_count,
+        destination_folder_id: destination_folder.id,
+        destination_path: normalize_db_path(&destination_folder.path),
+    })
+}
+
 pub async fn rename_file(
     pool: &PgPool,
     current_user: &AuthenticatedUser,
@@ -3089,6 +3448,75 @@ async fn load_accessible_folder_by_id_tx(
         },
         access,
     ))
+}
+
+async fn load_owned_folder_for_move_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    folder_id: i64,
+) -> Result<MoveFolderRow, ApiError> {
+    sqlx::query_as::<_, MoveFolderRow>(
+        r#"
+        SELECT
+            id,
+            owner_user_id,
+            name,
+            path,
+            parent_folder_id
+        FROM folders
+        WHERE id = $1
+          AND owner_user_id = $2
+          AND is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(folder_id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve folder move target"))?
+    .ok_or_else(|| {
+        ApiError::BadRequest(
+            "Requested folder does not exist or does not belong to the current user".to_owned(),
+        )
+    })
+}
+
+async fn load_owned_file_for_move_by_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    file_id: i64,
+) -> Result<MoveFileRow, ApiError> {
+    sqlx::query_as::<_, MoveFileRow>(
+        r#"
+        SELECT
+            file_row.id,
+            file_row.owner_user_id,
+            file_row.name,
+            file_row.storage_path,
+            file_row.folder_id,
+            folder.path AS folder_path
+        FROM files file_row
+        INNER JOIN folders folder
+            ON folder.id = file_row.folder_id
+        WHERE file_row.id = $1
+          AND file_row.owner_user_id = $2
+          AND folder.owner_user_id = $2
+          AND file_row.is_deleted = false
+          AND folder.is_deleted = false
+        LIMIT 1
+        "#,
+    )
+    .bind(file_id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::internal_with_context("Failed to resolve file move target"))?
+    .ok_or_else(|| {
+        ApiError::BadRequest(
+            "Requested file does not exist or does not belong to the current user".to_owned(),
+        )
+    })
 }
 
 async fn load_file_for_deletion_tx(
@@ -4639,6 +5067,12 @@ fn logical_path_to_storage_prefix(user_id: i64, logical_path: &str) -> String {
     let relative = logical_path_to_relative_path(logical_path);
     let storage_rel = Path::new("users").join(user_id.to_string()).join(relative);
     format!("/{}", storage_rel.to_string_lossy().replace('\\', "/"))
+}
+
+fn rollback_filesystem_moves(applied_moves: &[(PathBuf, PathBuf)]) {
+    for (from_path, to_path) in applied_moves.iter().rev() {
+        let _ = fs::rename(to_path, from_path);
+    }
 }
 
 fn move_temp_file(source: &Path, target: &Path) -> Result<(), ApiError> {

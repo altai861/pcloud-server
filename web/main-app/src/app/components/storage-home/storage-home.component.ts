@@ -123,6 +123,17 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   renameValue = '';
   renameErrorMessage = '';
   renameSubmitting = false;
+  isMoveModalOpen = false;
+  moveSubmitting = false;
+  moveErrorMessage = '';
+  moveTargets: StorageEntryDto[] = [];
+  moveBrowserLoading = false;
+  moveBrowserPath = '/';
+  moveBrowserFolderId: number | null = null;
+  moveBrowserParentFolderId: number | null = null;
+  moveBrowserFolders: StorageEntryDto[] = [];
+  moveDestinationFolderId: number | null = null;
+  moveDestinationPath = '/';
   ownerProfileImageSrc: string | null = null;
   isShareModalOpen = false;
   shareModalEntry: StorageEntryDto | null = null;
@@ -833,6 +844,33 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
+  onMoveEntryClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!this.canMutateExistingEntries) {
+      this.storageErrorMessage = this.i18nService.t('storage.moveErrorOwnerOnly');
+      this.cdr.detectChanges();
+      return;
+    }
+
+    let targets: StorageEntryDto[] = [];
+    if (this.isEntryMenuForMultiSelection) {
+      targets = this.displayEntries.filter((entry) => this.isEntrySelected(entry));
+    } else if (this.entryMenuTarget) {
+      targets = [this.entryMenuTarget];
+    }
+
+    if (targets.length === 0) {
+      this.storageErrorMessage = this.i18nService.t('storage.moveErrorSelectAtLeastOne');
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.closeEntryMenu();
+    this.openMoveModal(targets);
+  }
+
   onDeleteEntryClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -966,6 +1004,179 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       });
   }
 
+  get moveTargetsCount(): number {
+    return this.moveTargets.length;
+  }
+
+  get moveDestinationWarning(): string | null {
+    if (!this.isMoveModalOpen || this.moveDestinationFolderId === null) {
+      return null;
+    }
+
+    for (const target of this.moveTargets) {
+      if (target.entryType !== 'folder') {
+        continue;
+      }
+
+      if (target.id === this.moveDestinationFolderId) {
+        return this.i18nService.t('storage.moveWarnSelf');
+      }
+
+      if (this.isDescendantPath(this.moveDestinationPath, target.path)) {
+        return this.i18nService.t('storage.moveWarnChild');
+      }
+    }
+
+    return null;
+  }
+
+  get canSubmitMove(): boolean {
+    if (!this.isMoveModalOpen || this.moveSubmitting || this.moveBrowserLoading) {
+      return false;
+    }
+
+    if (!this.canMutateExistingEntries || this.moveTargets.length === 0) {
+      return false;
+    }
+
+    if (this.moveDestinationFolderId === null) {
+      return false;
+    }
+
+    return this.moveDestinationWarning === null;
+  }
+
+  openMoveModal(targets: StorageEntryDto[]): void {
+    this.isMoveModalOpen = true;
+    this.moveSubmitting = false;
+    this.moveErrorMessage = '';
+    this.moveTargets = [...targets];
+    this.moveBrowserLoading = false;
+    this.moveBrowserPath = '/';
+    this.moveBrowserFolderId = null;
+    this.moveBrowserParentFolderId = null;
+    this.moveBrowserFolders = [];
+    this.moveDestinationFolderId = null;
+    this.moveDestinationPath = '/';
+    this.cdr.detectChanges();
+
+    this.loadMoveBrowserPath('/', null);
+  }
+
+  closeMoveModal(): void {
+    this.isMoveModalOpen = false;
+    this.moveSubmitting = false;
+    this.moveErrorMessage = '';
+    this.moveTargets = [];
+    this.moveBrowserLoading = false;
+    this.moveBrowserPath = '/';
+    this.moveBrowserFolderId = null;
+    this.moveBrowserParentFolderId = null;
+    this.moveBrowserFolders = [];
+    this.moveDestinationFolderId = null;
+    this.moveDestinationPath = '/';
+  }
+
+  moveBrowserNavigateRoot(): void {
+    if (this.moveBrowserLoading) {
+      return;
+    }
+
+    this.loadMoveBrowserPath('/', null);
+  }
+
+  moveBrowserNavigateUp(): void {
+    if (this.moveBrowserLoading || this.moveBrowserParentFolderId === null) {
+      return;
+    }
+
+    this.loadMoveBrowserPath('', this.moveBrowserParentFolderId);
+  }
+
+  openMoveBrowserFolder(folder: StorageEntryDto): void {
+    if (this.moveBrowserLoading || folder.entryType !== 'folder') {
+      return;
+    }
+
+    this.loadMoveBrowserPath('', folder.id);
+  }
+
+  selectMoveDestination(folderId: number | null, path: string): void {
+    if (folderId === null) {
+      return;
+    }
+
+    this.moveDestinationFolderId = folderId;
+    this.moveDestinationPath = path;
+    this.moveErrorMessage = '';
+    this.cdr.detectChanges();
+  }
+
+  submitMove(): void {
+    if (!this.canMutateExistingEntries) {
+      this.moveErrorMessage = this.i18nService.t('storage.moveErrorOwnerOnly');
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const destinationFolderId = this.moveDestinationFolderId;
+    if (destinationFolderId === null) {
+      this.moveErrorMessage = this.i18nService.t('storage.moveErrorSelectDestination');
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const warning = this.moveDestinationWarning;
+    if (warning) {
+      this.moveErrorMessage = warning;
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.moveSubmitting = true;
+    this.moveErrorMessage = '';
+    this.cdr.detectChanges();
+
+    this.storageApiService
+      .moveResources(
+        '',
+        accessToken,
+        destinationFolderId,
+        this.moveTargets.map((target) => ({
+          entryType: target.entryType,
+          resourceId: target.id
+        }))
+      )
+      .pipe(finalize(() => {
+        this.moveSubmitting = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: () => {
+          this.closeMoveModal();
+          this.selectedEntryKeys.clear();
+          this.reloadCurrentFolder();
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.moveErrorMessage = this.extractError(error, this.i18nService.t('storage.moveErrorSubmit'));
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+            return;
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
   get isEntryDownloadDisabled(): boolean {
     if (this.isBatchDownloadInProgress || this.storageLoading || this.isBulkTrashInProgress) {
       return true;
@@ -995,6 +1206,14 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   get isEntryEditDisabled(): boolean {
+    if (this.isEntryMenuForMultiSelection) {
+      return !this.canMutateExistingEntries || this.selectedEntriesCount === 0;
+    }
+
+    return !this.entryMenuTarget || !this.canMutateExistingEntries;
+  }
+
+  get isEntryMoveDisabled(): boolean {
     if (this.isEntryMenuForMultiSelection) {
       return !this.canMutateExistingEntries || this.selectedEntriesCount === 0;
     }
@@ -1285,6 +1504,12 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.isMoveModalOpen) {
+      this.closeMoveModal();
+      this.cdr.detectChanges();
+      return;
+    }
+
     if (this.isRenameModalOpen) {
       this.closeRenameModal();
       this.cdr.detectChanges();
@@ -1339,6 +1564,57 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   private loadStorageByPath(path: string, syncRoute: boolean): void {
     this.loadStorageInternal(path, null, syncRoute, false);
+  }
+
+  private loadMoveBrowserPath(path: string, folderId: number | null): void {
+    const accessToken = this.sessionService.readAccessToken();
+    if (!accessToken) {
+      this.redirectToLogin();
+      return;
+    }
+
+    this.moveBrowserLoading = true;
+    this.moveErrorMessage = '';
+    this.cdr.detectChanges();
+
+    this.storageApiService
+      .list('', accessToken, path, '', folderId, 500, null)
+      .pipe(finalize(() => {
+        this.moveBrowserLoading = false;
+        this.cdr.detectChanges();
+      }))
+      .subscribe({
+        next: (body: StorageListResponseDto) => {
+          this.moveBrowserPath = body.currentPath;
+          this.moveBrowserFolderId = body.currentFolderId;
+          this.moveBrowserParentFolderId = body.parentFolderId;
+          this.moveBrowserFolders = body.entries
+            .filter((entry) => entry.entryType === 'folder')
+            .sort((left, right) =>
+              left.name.localeCompare(right.name, undefined, {
+                sensitivity: 'base',
+                numeric: true
+              })
+            );
+
+          if (this.moveDestinationFolderId === null && body.currentFolderId !== null) {
+            this.moveDestinationFolderId = body.currentFolderId;
+            this.moveDestinationPath = body.currentPath;
+          }
+
+          this.cdr.detectChanges();
+        },
+        error: (error: unknown) => {
+          this.moveErrorMessage = this.extractError(error, this.i18nService.t('storage.moveErrorLoadFolders'));
+
+          if (error instanceof HttpErrorResponse && error.status === 401) {
+            this.redirectToLogin();
+            return;
+          }
+
+          this.cdr.detectChanges();
+        }
+      });
   }
 
   loadMoreEntries(): void {
@@ -1606,7 +1882,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
 
   private openEntryMenuAt(clientX: number, clientY: number, entry: StorageEntryDto, multiSelection: boolean): void {
     const menuWidth = 176;
-    const menuHeight = 176;
+    const menuHeight = multiSelection ? 196 : 228;
     const viewportPadding = 8;
 
     const left = Math.max(
@@ -1896,6 +2172,33 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     this.peopleSearchTerm = '';
     this.selectedPeopleUserIds.clear();
     this.activeFilterMenu = null;
+  }
+
+  private isDescendantPath(path: string, ancestor: string): boolean {
+    const normalizedPath = this.normalizeStoragePath(path);
+    const normalizedAncestor = this.normalizeStoragePath(ancestor);
+
+    if (normalizedAncestor === '/') {
+      return normalizedPath !== '/';
+    }
+
+    return normalizedPath.length > normalizedAncestor.length
+      && normalizedPath.startsWith(normalizedAncestor)
+      && normalizedPath.charAt(normalizedAncestor.length) === '/';
+  }
+
+  private normalizeStoragePath(path: string): string {
+    const trimmed = path.trim();
+    if (trimmed.length === 0 || trimmed === '/') {
+      return '/';
+    }
+
+    const normalized = trimmed.replace(/\/+/g, '/');
+    if (normalized.startsWith('/')) {
+      return normalized;
+    }
+
+    return `/${normalized}`;
   }
 
   private redirectToLogin(): void {

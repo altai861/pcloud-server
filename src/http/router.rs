@@ -59,6 +59,7 @@ pub fn build_client_router(state: AppState) -> Router {
             "/api/client/storage/starred",
             put(storage_handlers::set_starred),
         )
+        .route("/api/client/storage/move", post(storage_handlers::move_entries))
         .route(
             "/api/client/storage/folders/metadata",
             get(storage_handlers::folder_metadata),
