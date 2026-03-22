@@ -107,7 +107,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   get breadcrumbs(): BreadcrumbItem[] {
-    const result: BreadcrumbItem[] = [{ label: '/', path: '/' }];
+    const result: BreadcrumbItem[] = [{ label: 'My Storage', path: '/' }];
 
     if (this.currentPath === '/') {
       return result;
