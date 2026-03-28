@@ -11,9 +11,9 @@ use crate::{
 use axum::{
     Json,
     body::Body,
-    extract::{Multipart, Query, State},
+    extract::{Multipart, Query, State, multipart::MultipartError},
     http::{
-        HeaderMap,
+        HeaderMap, StatusCode,
         header::{self, AUTHORIZATION},
     },
     response::Response,
@@ -68,7 +68,7 @@ pub async fn update_profile_image(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|_| crate::error::ApiError::BadRequest("Invalid multipart payload".to_owned()))?
+        .map_err(map_profile_image_multipart_error)?
     {
         if field.name() != Some("image") {
             continue;
@@ -79,9 +79,7 @@ pub async fn update_profile_image(
             field
                 .bytes()
                 .await
-                .map_err(|_| {
-                    crate::error::ApiError::BadRequest("Invalid image payload".to_owned())
-                })?
+                .map_err(map_profile_image_multipart_error)?
                 .to_vec(),
         );
         break;
@@ -100,6 +98,16 @@ pub async fn update_profile_image(
         message: "Profile image updated successfully".to_owned(),
         user: updated_user,
     }))
+}
+
+fn map_profile_image_multipart_error(err: MultipartError) -> crate::error::ApiError {
+    if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        return crate::error::ApiError::BadRequest(
+            "Profile image limit exceeded. Maximum size is 30 MB".to_owned(),
+        );
+    }
+
+    crate::error::ApiError::BadRequest(format!("Invalid image payload: {}", err.body_text()))
 }
 
 pub async fn profile_image(

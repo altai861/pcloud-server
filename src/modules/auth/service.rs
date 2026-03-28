@@ -18,7 +18,7 @@ use std::{
 
 const SESSION_LIFETIME_HOURS: i32 = 12;
 const PROFILE_IMAGE_ENDPOINT: &str = "/api/client/me/profile-image";
-const MAX_PROFILE_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_BYTES: usize = 30 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
@@ -214,7 +214,7 @@ pub async fn update_profile_image(
 
     if bytes.len() > MAX_PROFILE_IMAGE_BYTES {
         return Err(ApiError::BadRequest(
-            "Image is too large. Maximum size is 5 MB".to_owned(),
+            "Profile image limit exceeded. Maximum size is 30 MB".to_owned(),
         ));
     }
 

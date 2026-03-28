@@ -16,6 +16,7 @@ use axum::{
 };
 
 const MAX_UPLOAD_REQUEST_BYTES: usize = 5 * 1024 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
 pub fn build_client_router(state: AppState) -> Router {
     Router::new()
@@ -25,7 +26,9 @@ pub fn build_client_router(state: AppState) -> Router {
         .route("/api/client/me", get(auth_handlers::me))
         .route(
             "/api/client/me/profile-image",
-            get(auth_handlers::profile_image).post(auth_handlers::update_profile_image),
+            get(auth_handlers::profile_image)
+                .post(auth_handlers::update_profile_image)
+                .layer(DefaultBodyLimit::max(MAX_PROFILE_IMAGE_REQUEST_BYTES)),
         )
         .route(
             "/api/client/users/profile-image",
