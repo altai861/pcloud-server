@@ -5,6 +5,13 @@ pub struct Config {
     pub database_url: String,
     pub client_bind: SocketAddr,
     pub admin_bind: SocketAddr,
+    pub mode: AppMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppMode {
+    Dev,
+    Prod,
 }
 
 impl Config {
@@ -25,10 +32,26 @@ impl Config {
             .parse::<SocketAddr>()
             .map_err(|e| anyhow::anyhow!("Invalid PCLOUD_ADMIN_BIND: {e}"))?;
 
+        let mode = match env::var("PCLOUD_MODE")
+            .unwrap_or_else(|_| "PROD".to_owned())
+            .trim()
+            .to_ascii_uppercase()
+            .as_str()
+        {
+            "DEV" => AppMode::Dev,
+            "PROD" => AppMode::Prod,
+            other => {
+                return Err(anyhow::anyhow!(
+                    "Invalid PCLOUD_MODE: {other}. Expected DEV or PROD"
+                ));
+            }
+        };
+
         Ok(Self {
             database_url,
             client_bind,
             admin_bind,
+            mode,
         })
     }
 }

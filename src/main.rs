@@ -7,7 +7,7 @@ mod modules;
 mod web;
 
 use crate::app_state::AppState;
-use crate::config::Config;
+use crate::config::{AppMode, Config};
 use crate::db::{connect_pool, run_migrations};
 use crate::http::router::{build_admin_router, build_client_router};
 use crate::modules::setup::service::is_initialized;
@@ -23,7 +23,13 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("Failed to determine setup state: {error:?}"))?;
 
-    let client_app = build_client_router(state.clone());
+    let request_logging_enabled = config.mode == AppMode::Dev;
+
+    if request_logging_enabled {
+        println!("DEV mode request logging is enabled.");
+    }
+
+    let client_app = build_client_router(state.clone(), request_logging_enabled);
     let client_listener = tokio::net::TcpListener::bind(config.client_bind).await?;
     println!("Client API + Web App: http://{}", config.client_bind);
     let client_server = axum::serve(client_listener, client_app);
@@ -34,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let admin_app = build_admin_router(state);
+    let admin_app = build_admin_router(state, request_logging_enabled);
     let admin_listener = tokio::net::TcpListener::bind(config.admin_bind).await?;
     println!("Admin Setup API + Web App: http://{}", config.admin_bind);
 

@@ -8,18 +8,21 @@ use crate::{
     web::static_files::{serve_admin_static, serve_client_static},
 };
 use axum::{
+    body::Body,
     Router,
     extract::DefaultBodyLimit,
-    http::Uri,
+    http::{Request, Uri},
+    middleware::{self, Next},
     response::Response,
     routing::{delete, get, post, put},
 };
+use std::time::Instant;
 
 const MAX_UPLOAD_REQUEST_BYTES: usize = 5 * 1024 * 1024 * 1024;
 const MAX_PROFILE_IMAGE_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
-pub fn build_client_router(state: AppState) -> Router {
-    Router::new()
+pub fn build_client_router(state: AppState, request_logging_enabled: bool) -> Router {
+    let router = Router::new()
         .route("/api/client/status", get(system_handlers::server_status))
         .route("/api/client/auth/login", post(auth_handlers::login))
         .route("/api/client/auth/logout", post(auth_handlers::logout))
@@ -125,16 +128,50 @@ pub fn build_client_router(state: AppState) -> Router {
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/", get(client_index_handler))
         .route("/*file", get(client_static_handler))
-        .with_state(state)
+        .with_state(state);
+
+    with_optional_request_logging(router, request_logging_enabled)
 }
 
-pub fn build_admin_router(state: AppState) -> Router {
-    Router::new()
+pub fn build_admin_router(state: AppState, request_logging_enabled: bool) -> Router {
+    let router = Router::new()
         .route("/api/setup/status", get(setup_handlers::status))
         .route("/api/setup/initialize", post(setup_handlers::initialize))
         .route("/", get(admin_index_handler))
         .route("/*file", get(admin_static_handler))
-        .with_state(state)
+        .with_state(state);
+
+    with_optional_request_logging(router, request_logging_enabled)
+}
+
+fn with_optional_request_logging(router: Router, enabled: bool) -> Router {
+    if enabled {
+        router.layer(middleware::from_fn(log_request))
+    } else {
+        router
+    }
+}
+
+async fn log_request(request: Request<Body>, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let query = request
+        .uri()
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
+    let started_at = Instant::now();
+
+    let response = next.run(request).await;
+    let status = response.status();
+    let elapsed_ms = started_at.elapsed().as_millis();
+
+    println!(
+        "[REQ] {} {}{} -> {} ({} ms)",
+        method, path, query, status, elapsed_ms
+    );
+
+    response
 }
 
 async fn admin_index_handler() -> Response {
