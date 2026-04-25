@@ -1008,6 +1008,35 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     return this.moveTargets.length;
   }
 
+  get moveLocationSegments(): Array<{ label: string; path: string; active: boolean }> {
+    const currentPath = this.moveBrowserPath || '/';
+    const segments: Array<{ label: string; path: string; active: boolean }> = [
+      {
+        label: this.i18nService.t('storage.moveRoot'),
+        path: '/',
+        active: currentPath === '/'
+      }
+    ];
+
+    if (currentPath === '/') {
+      return segments;
+    }
+
+    const parts = currentPath.split('/').filter((part) => part.length > 0);
+    let traversedPath = '';
+
+    for (const [index, part] of parts.entries()) {
+      traversedPath += `/${part}`;
+      segments.push({
+        label: part,
+        path: traversedPath,
+        active: index === parts.length - 1
+      });
+    }
+
+    return segments;
+  }
+
   get moveDestinationWarning(): string | null {
     if (!this.isMoveModalOpen || this.moveDestinationFolderId === null) {
       return null;
@@ -1099,6 +1128,14 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     }
 
     this.loadMoveBrowserPath('', folder.id);
+  }
+
+  navigateMoveBrowserPath(path: string): void {
+    if (this.moveBrowserLoading) {
+      return;
+    }
+
+    this.loadMoveBrowserPath(path, null);
   }
 
   selectMoveDestination(folderId: number | null, path: string): void {
@@ -1597,7 +1634,7 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
               })
             );
 
-          if (this.moveDestinationFolderId === null && body.currentFolderId !== null) {
+          if (body.currentFolderId !== null) {
             this.moveDestinationFolderId = body.currentFolderId;
             this.moveDestinationPath = body.currentPath;
           }

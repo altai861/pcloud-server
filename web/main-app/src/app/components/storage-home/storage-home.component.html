@@ -258,27 +258,25 @@
   <article class="move-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
     <header class="move-header">
       <h2>{{ 'storage.moveTitle' | t }}</h2>
-      <button type="button" (click)="closeMoveModal()">{{ 'common.close' | t }}</button>
     </header>
 
     <p class="move-subtitle">{{ 'storage.moveSelectedCount' | t: { count: moveTargetsCount } }}</p>
 
-    <div class="move-browser-toolbar">
-      <button type="button" (click)="moveBrowserNavigateRoot()" [disabled]="moveBrowserLoading">
-        {{ 'storage.moveRoot' | t }}
-      </button>
-      <button type="button" (click)="moveBrowserNavigateUp()" [disabled]="moveBrowserLoading || moveBrowserParentFolderId === null">
-        {{ 'storage.moveUp' | t }}
-      </button>
-      <button
-        type="button"
-        (click)="selectMoveDestination(moveBrowserFolderId, moveBrowserPath)"
-        [disabled]="moveBrowserLoading || moveBrowserFolderId === null"
-      >
-        {{ moveDestinationFolderId === moveBrowserFolderId ? ('storage.moveSelectedDestination' | t) : ('storage.moveSelectCurrentFolder' | t) }}
-      </button>
-      <span class="move-current-path">{{ moveBrowserPath }}</span>
-    </div>
+    <section class="move-location">
+      <span class="move-location-label">{{ 'storage.moveCurrentLocation' | t }}:</span>
+
+      <div class="move-location-path">
+        <button
+          type="button"
+          *ngFor="let segment of moveLocationSegments"
+          [class.active]="segment.active"
+          (click)="navigateMoveBrowserPath(segment.path)"
+          [disabled]="moveBrowserLoading || segment.active"
+        >
+          {{ segment.label }}
+        </button>
+      </div>
+    </section>
 
     <section class="move-browser-list">
       <p class="status-text" *ngIf="moveBrowserLoading">{{ 'storage.moveLoadingFolders' | t }}</p>
@@ -290,15 +288,7 @@
         <button type="button" class="move-folder-open" (click)="openMoveBrowserFolder(folder)">
           <img src="folder.png" alt="" />
           <span>{{ folder.name }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="move-folder-select"
-          [class.active]="moveDestinationFolderId === folder.id"
-          (click)="selectMoveDestination(folder.id, folder.path)"
-        >
-          {{ moveDestinationFolderId === folder.id ? ('storage.moveSelectedDestination' | t) : ('storage.moveSelectDestination' | t) }}
+          <span class="move-folder-chevron">›</span>
         </button>
       </article>
     </section>

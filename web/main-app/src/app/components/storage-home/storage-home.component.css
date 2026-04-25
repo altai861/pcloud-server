@@ -827,24 +827,13 @@ button {
 .move-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
 }
 
 .move-header h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.12rem;
   font-weight: 700;
-}
-
-.move-header button {
-  border: 1px solid var(--line-strong);
-  border-radius: 9px;
-  background: var(--input);
-  min-height: 32px;
-  padding: 0 0.68rem;
-  font-size: 0.84rem;
-  cursor: pointer;
 }
 
 .move-subtitle {
@@ -853,22 +842,31 @@ button {
   color: var(--muted);
 }
 
-.move-browser-toolbar {
+.move-location {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-soft);
-  padding: 0.42rem;
+  padding: 0.75rem 0.82rem;
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr);
-  align-items: center;
+  gap: 0.48rem;
+}
+
+.move-location-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.move-location-path {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.42rem;
 }
 
-.move-browser-toolbar button {
+.move-location-path button {
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  min-height: 32px;
-  padding: 0 0.58rem;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 0.8rem;
   background: var(--input);
   color: var(--text);
   font-family: inherit;
@@ -876,17 +874,14 @@ button {
   cursor: pointer;
 }
 
-.move-browser-toolbar button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.move-location-path button.active {
+  border-color: color-mix(in srgb, var(--focus) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--focus) 12%, var(--input));
 }
 
-.move-current-path {
-  font-size: 0.84rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.move-location-path button:disabled {
+  opacity: 0.78;
+  cursor: default;
 }
 
 .move-browser-list {
@@ -903,11 +898,8 @@ button {
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   border-radius: 9px;
   background: var(--panel);
-  padding: 0.36rem 0.42rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.4rem;
+  padding: 0;
+  overflow: hidden;
 }
 
 .move-folder-open {
@@ -917,11 +909,16 @@ button {
   align-items: center;
   gap: 0.45rem;
   text-align: left;
-  min-height: 32px;
-  padding: 0;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.72rem 0.82rem;
   font-size: 0.9rem;
   color: var(--text);
   cursor: pointer;
+}
+
+.move-folder-open:hover {
+  background: color-mix(in srgb, var(--focus) 6%, var(--panel));
 }
 
 .move-folder-open img {
@@ -936,21 +933,10 @@ button {
   white-space: nowrap;
 }
 
-.move-folder-select {
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  min-height: 30px;
-  padding: 0 0.54rem;
-  background: var(--input);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.move-folder-select.active {
-  border-color: color-mix(in srgb, var(--focus) 45%, var(--line-strong));
-  background: color-mix(in srgb, var(--focus) 14%, var(--input));
+.move-folder-chevron {
+  margin-left: auto;
+  font-size: 1.1rem;
+  color: var(--muted);
 }
 
 .move-destination {
