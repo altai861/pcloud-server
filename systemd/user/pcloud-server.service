@@ -1,0 +1,19 @@
+[Unit]
+Description=PCloud Rust application server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/altai/Documents/diploma/pcloud-server
+EnvironmentFile=/home/altai/Documents/diploma/pcloud-server/.env
+ExecStart=/home/altai/Documents/diploma/pcloud-server/scripts/run-prod.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
