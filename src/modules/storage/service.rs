@@ -1046,10 +1046,7 @@ pub async fn search_resources(
     limit: Option<i64>,
     cursor: Option<String>,
 ) -> Result<SearchResourcesResult, ApiError> {
-    let normalized_query = query
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
+    let normalized_query = query.unwrap_or_default().trim().to_owned();
 
     if normalized_query.is_empty() {
         return Ok(SearchResourcesResult {
@@ -1505,12 +1502,9 @@ pub async fn build_batch_download_archive(
                         .await?;
 
                 let folder_label = folder_download_label(&folder.path);
-                let folder_files = load_folder_files_for_batch_download(
-                    pool,
-                    folder.owner_user_id,
-                    &folder.path,
-                )
-                .await?;
+                let folder_files =
+                    load_folder_files_for_batch_download(pool, folder.owner_user_id, &folder.path)
+                        .await?;
 
                 for file in folder_files {
                     let absolute = PathBuf::from(&settings.storage_root_path)
@@ -1539,8 +1533,8 @@ pub async fn build_batch_download_archive(
                 )
                 .await?;
 
-                let absolute =
-                    PathBuf::from(&settings.storage_root_path).join(file.storage_path.trim_start_matches('/'));
+                let absolute = PathBuf::from(&settings.storage_root_path)
+                    .join(file.storage_path.trim_start_matches('/'));
                 if !absolute.is_file() {
                     continue;
                 }
@@ -1972,9 +1966,12 @@ pub async fn move_storage_entries(
         .await
         .map_err(|_| ApiError::internal_with_context("Failed to start move transaction"))?;
 
-    let destination_folder =
-        load_owned_folder_for_move_by_id_tx(&mut tx, current_user.user.id, input.destination_folder_id)
-            .await?;
+    let destination_folder = load_owned_folder_for_move_by_id_tx(
+        &mut tx,
+        current_user.user.id,
+        input.destination_folder_id,
+    )
+    .await?;
 
     let mut dedupe = HashSet::<String>::new();
     let mut requested_items = Vec::<MoveStorageItemInput>::new();
@@ -2008,15 +2005,21 @@ pub async fn move_storage_entries(
     for item in requested_items {
         match item.resource_type {
             StorageEntryKind::Folder => {
-                let folder =
-                    load_owned_folder_for_move_by_id_tx(&mut tx, current_user.user.id, item.resource_id)
-                        .await?;
+                let folder = load_owned_folder_for_move_by_id_tx(
+                    &mut tx,
+                    current_user.user.id,
+                    item.resource_id,
+                )
+                .await?;
                 folder_sources.push(folder);
             }
             StorageEntryKind::File => {
-                let file =
-                    load_owned_file_for_move_by_id_tx(&mut tx, current_user.user.id, item.resource_id)
-                        .await?;
+                let file = load_owned_file_for_move_by_id_tx(
+                    &mut tx,
+                    current_user.user.id,
+                    item.resource_id,
+                )
+                .await?;
                 file_sources.push(file);
             }
         }
@@ -2088,7 +2091,8 @@ pub async fn move_storage_entries(
         let new_folder_path = join_child_path(&destination_folder.path, &folder.name);
         let old_folder_prefix = format!("{}/%", folder.path.trim_end_matches('/'));
         let old_storage_prefix = logical_path_to_storage_prefix(folder.owner_user_id, &folder.path);
-        let new_storage_prefix = logical_path_to_storage_prefix(folder.owner_user_id, &new_folder_path);
+        let new_storage_prefix =
+            logical_path_to_storage_prefix(folder.owner_user_id, &new_folder_path);
         let old_storage_prefix_like = format!("{}/%", old_storage_prefix.trim_end_matches('/'));
 
         let old_folder_abs = user_root.join(logical_path_to_relative_path(&folder.path));
@@ -4712,7 +4716,9 @@ fn make_unique_zip_entry_path(path: &str, used_paths: &mut HashSet<String>) -> S
         ("", path)
     };
 
-    let extension_split = name.rfind('.').filter(|index| *index > 0 && *index < name.len() - 1);
+    let extension_split = name
+        .rfind('.')
+        .filter(|index| *index > 0 && *index < name.len() - 1);
     let (stem, extension) = if let Some(index) = extension_split {
         (&name[..index], Some(&name[index + 1..]))
     } else {

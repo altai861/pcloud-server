@@ -80,7 +80,7 @@ export class AuthApiService {
     const normalized = apiBaseUrl.trim().replace(/\/+$/, '');
 
     if (normalized.length === 0) {
-      return path;
+      return path.replace(/^\/+/, '');
     }
 
     return `${normalized}${path}`;

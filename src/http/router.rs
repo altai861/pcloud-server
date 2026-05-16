@@ -8,8 +8,8 @@ use crate::{
     web::static_files::{serve_admin_static, serve_client_static},
 };
 use axum::{
-    body::Body,
     Router,
+    body::Body,
     extract::DefaultBodyLimit,
     http::{Request, Uri},
     middleware::{self, Next},
@@ -37,7 +37,10 @@ pub fn build_client_router(state: AppState, request_logging_enabled: bool) -> Ro
             "/api/client/users/profile-image",
             get(auth_handlers::user_profile_image),
         )
-        .route("/api/client/search", get(storage_handlers::search_resources))
+        .route(
+            "/api/client/search",
+            get(storage_handlers::search_resources),
+        )
         .route("/api/client/storage/list", get(storage_handlers::list))
         .route(
             "/api/client/storage/trash/list",
@@ -65,7 +68,10 @@ pub fn build_client_router(state: AppState, request_logging_enabled: bool) -> Ro
             "/api/client/storage/starred",
             put(storage_handlers::set_starred),
         )
-        .route("/api/client/storage/move", post(storage_handlers::move_entries))
+        .route(
+            "/api/client/storage/move",
+            post(storage_handlers::move_entries),
+        )
         .route(
             "/api/client/storage/folders/metadata",
             get(storage_handlers::folder_metadata),

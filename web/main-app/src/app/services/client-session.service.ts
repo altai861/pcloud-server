@@ -4,14 +4,14 @@ import { Injectable } from '@angular/core';
   providedIn: 'root'
 })
 export class ClientSessionService {
-  private readonly accessTokenStorageKey = 'pcloud.main.accessToken';
+  private readonly defaultAccessTokenStorageKey = 'pcloud.main.accessToken';
 
   readAccessToken(): string | null {
     if (typeof localStorage === 'undefined') {
       return null;
     }
 
-    const value = localStorage.getItem(this.accessTokenStorageKey);
+    const value = localStorage.getItem(this.accessTokenStorageKey());
     if (!value || value.trim().length === 0) {
       return null;
     }
@@ -24,7 +24,7 @@ export class ClientSessionService {
       return;
     }
 
-    localStorage.setItem(this.accessTokenStorageKey, accessToken);
+    localStorage.setItem(this.accessTokenStorageKey(), accessToken);
   }
 
   clearSession(): void {
@@ -32,6 +32,19 @@ export class ClientSessionService {
       return;
     }
 
-    localStorage.removeItem(this.accessTokenStorageKey);
+    localStorage.removeItem(this.accessTokenStorageKey());
+  }
+
+  private accessTokenStorageKey(): string {
+    if (typeof window === 'undefined') {
+      return this.defaultAccessTokenStorageKey;
+    }
+
+    const relayPrefix = window.location.pathname.match(/^\/d\/[^/]+/);
+    if (!relayPrefix) {
+      return this.defaultAccessTokenStorageKey;
+    }
+
+    return `${this.defaultAccessTokenStorageKey}:${relayPrefix[0]}`;
   }
 }

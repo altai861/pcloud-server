@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod http;
 mod modules;
+mod relay;
 mod web;
 
 use crate::app_state::AppState;
@@ -11,6 +12,7 @@ use crate::config::{AppMode, Config};
 use crate::db::{connect_pool, run_migrations};
 use crate::http::router::{build_admin_router, build_client_router};
 use crate::modules::setup::service::is_initialized;
+use crate::relay::{client::run_relay_client, config::RelayClientConfig};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -33,6 +35,14 @@ async fn main() -> anyhow::Result<()> {
     let client_listener = tokio::net::TcpListener::bind(config.client_bind).await?;
     println!("Client API + Web App: http://{}", config.client_bind);
     let client_server = axum::serve(client_listener, client_app);
+
+    if let Some(relay_config) = RelayClientConfig::from_env(config.client_bind)? {
+        println!(
+            "Relay client enabled. Device ID: {}. Local target: {}",
+            relay_config.device_id, relay_config.local_base_url
+        );
+        tokio::spawn(run_relay_client(relay_config));
+    }
 
     if initialized {
         println!("Admin setup web is disabled because system is already initialized.");

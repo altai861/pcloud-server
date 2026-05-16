@@ -5,9 +5,9 @@ use crate::{
         auth::service,
         storage::{
             dto::{
-                ShareMutationResponse, ShareableUserDto, ShareableUsersResponse,
-                SharedPermissionTargetDto, SharedPermissionsResponse, SharedResourceEntryDto,
-                SharedResourcesListResponse, SearchResourceEntryDto, SearchResourcesResponse,
+                SearchResourceEntryDto, SearchResourcesResponse, ShareMutationResponse,
+                ShareableUserDto, ShareableUsersResponse, SharedPermissionTargetDto,
+                SharedPermissionsResponse, SharedResourceEntryDto, SharedResourcesListResponse,
                 StorageDeleteResponse, StorageFileMetadataResponse, StorageFolderMetadataResponse,
                 StorageListResponse, StorageMoveResponse, StorageMutationResponse,
                 StorageRestoreResponse,
@@ -657,7 +657,8 @@ pub async fn download_batch(
         });
     }
 
-    let archive = storage_service::build_batch_download_archive(&state.pool, &current_user, items).await?;
+    let archive =
+        storage_service::build_batch_download_archive(&state.pool, &current_user, items).await?;
 
     let file_handle = File::open(&archive.archive_path).await.map_err(|_| {
         crate::error::ApiError::internal_with_context("Failed to open batch archive for download")
@@ -683,9 +684,7 @@ pub async fn download_batch(
         .header(CONTENT_LENGTH, archive.archive_size_bytes.to_string())
         .body(body)
         .map_err(|_| {
-            crate::error::ApiError::internal_with_context(
-                "Failed to build batch download response",
-            )
+            crate::error::ApiError::internal_with_context("Failed to build batch download response")
         })
 }
 
@@ -1057,7 +1056,8 @@ async fn build_file_stream_response(
     } else {
         "inline"
     };
-    let content_disposition = format!("{content_disposition_mode}; filename=\"{file_name_escaped}\"");
+    let content_disposition =
+        format!("{content_disposition_mode}; filename=\"{file_name_escaped}\"");
 
     Response::builder()
         .status(StatusCode::OK)

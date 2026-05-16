@@ -67,7 +67,7 @@ export class AdminApiService {
   private buildUrl(apiBaseUrl: string, path: string): string {
     const normalized = apiBaseUrl.trim().replace(/\/+$/, '');
     if (normalized.length === 0) {
-      return path;
+      return path.replace(/^\/+/, '');
     }
 
     return `${normalized}${path}`;
