@@ -124,7 +124,7 @@
 
     <article class="shared-row" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button class="name-cell" type="button" (click)="openEntry(entry)">
-        <img [src]="entry.resourceType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <img class="resource-icon" [src]="resourceIcon(entry)" alt="" />
         <span>{{ entry.name }}</span>
       </button>
 

@@ -25,7 +25,7 @@
       (contextmenu)="openEntryContextMenu($event, entry)"
     >
       <span class="name-cell">
-        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <img class="resource-icon" [src]="resourceIcon(entry)" alt="" />
         <button
           type="button"
           class="star-toggle"

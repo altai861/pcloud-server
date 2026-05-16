@@ -140,7 +140,7 @@
       (click)="onEntryRowClick($event, entry)" (dblclick)="onEntryDoubleClick(entry)"
       (contextmenu)="openEntryContextMenu($event, entry)">
       <button class="name-cell" type="button">
-        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <img class="resource-icon" [src]="resourceIcon(entry)" alt="" />
         <span>{{ entry.name }}</span>
       </button>
 
@@ -189,7 +189,7 @@
 
     <article class="grid-item" *ngFor="let entry of displayEntries" (contextmenu)="openEntryContextMenu($event, entry)">
       <button type="button" class="grid-name" (click)="openEntry(entry)" (dblclick)="onEntryDoubleClick(entry)">
-        <img [src]="entry.entryType === 'folder' ? 'folder.png' : 'file.png'" alt="" />
+        <img class="resource-icon" [src]="resourceIcon(entry)" alt="" />
         <span>{{ entry.name }}</span>
       </button>
       <span>{{ formatDate(entry.modifiedAtUnixMs) }}</span>
@@ -286,7 +286,7 @@
 
       <article class="move-browser-row" *ngFor="let folder of moveBrowserFolders">
         <button type="button" class="move-folder-open" (click)="openMoveBrowserFolder(folder)">
-          <img src="folder.png" alt="" />
+          <img class="resource-icon" src="google-icons/folder.svg" alt="" />
           <span>{{ folder.name }}</span>
           <span class="move-folder-chevron">›</span>
         </button>

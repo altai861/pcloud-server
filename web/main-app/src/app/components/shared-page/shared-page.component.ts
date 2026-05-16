@@ -10,6 +10,7 @@ import { TPipe } from '../../pipes/t.pipe';
 import { I18nService } from '../../services/i18n.service';
 import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
+import { resourceIconSrc } from '../../utils/resource-icon';
 
 type FilterMenuKind = 'type' | 'people' | 'modified' | null;
 type NameSortOrder = 'asc' | 'desc';
@@ -277,6 +278,10 @@ export class SharedPageComponent implements OnInit, OnDestroy {
     this.router.navigate(['/app/storage/files', entry.resourceId], {
       queryParams: { source: 'shared' }
     });
+  }
+
+  resourceIcon(entry: SharedResourceEntryDto): string {
+    return resourceIconSrc(entry.resourceType, entry.name);
   }
 
   openEntryMenuFromButton(event: MouseEvent, entry: SharedResourceEntryDto): void {

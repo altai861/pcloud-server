@@ -404,3 +404,7 @@
 :host-context([data-theme='dark']) .owner-avatar.default-avatar {
   filter: invert(1) brightness(1.2);
 }
+
+:host-context([data-theme='dark']) .resource-icon {
+  filter: none;
+}

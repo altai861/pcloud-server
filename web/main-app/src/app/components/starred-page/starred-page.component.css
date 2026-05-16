@@ -231,3 +231,7 @@
 :host-context([data-theme='dark']) .star-icon {
   filter: brightness(0) invert(1);
 }
+
+:host-context([data-theme='dark']) .resource-icon {
+  filter: none;
+}

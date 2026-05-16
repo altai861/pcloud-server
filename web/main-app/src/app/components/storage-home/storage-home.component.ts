@@ -13,11 +13,11 @@ import { StorageListResponseDto } from '../../dto/storage-list-response.dto';
 import { ClientSessionService } from '../../services/client-session.service';
 import { I18nService } from '../../services/i18n.service';
 import { ProfileImageService } from '../../services/profile-image.service';
-import { RecentEntriesService } from '../../services/recent-entries.service';
 import { StorageApiService } from '../../services/storage-api.service';
 import { StorageSidebarAction, StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
 import { TPipe } from '../../pipes/t.pipe';
+import { resourceIconSrc } from '../../utils/resource-icon';
 
 type ViewMode = 'list' | 'grid';
 
@@ -188,7 +188,6 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
     private readonly sessionService: ClientSessionService,
     private readonly i18nService: I18nService,
     private readonly profileImageService: ProfileImageService,
-    private readonly recentEntriesService: RecentEntriesService,
     private readonly storageSidebarActions: StorageSidebarActionsService,
     private readonly searchService: WorkspaceSearchService,
     private readonly route: ActivatedRoute,
@@ -296,13 +295,15 @@ export class StorageHomeComponent implements OnInit, OnDestroy {
   }
 
   openEntry(entry: StorageEntryDto): void {
-    this.recentEntriesService.recordOpened(entry);
-
     if (entry.entryType !== 'folder') {
       return;
     }
 
     this.navigateToFolderRoute(entry.id);
+  }
+
+  resourceIcon(entry: StorageEntryDto): string {
+    return resourceIconSrc(entry.entryType, entry.name);
   }
 
   ownerAvatarSrc(ownerUserId: number | null): string {

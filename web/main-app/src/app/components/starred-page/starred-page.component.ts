@@ -12,6 +12,7 @@ import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 import { StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
+import { resourceIconSrc } from '../../utils/resource-icon';
 
 @Component({
   selector: 'app-starred-page',
@@ -69,6 +70,10 @@ export class StarredPageComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.openEntryMenuAt(event.clientX, event.clientY, entry);
+  }
+
+  resourceIcon(entry: StorageEntryDto): string {
+    return resourceIconSrc(entry.entryType, entry.name);
   }
 
   closeEntryMenu(): void {

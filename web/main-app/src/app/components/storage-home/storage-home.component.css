@@ -1328,6 +1328,10 @@ button {
   filter: invert(1) brightness(1.2);
 }
 
+:host-context([data-theme='dark']) .resource-icon {
+  filter: none;
+}
+
 @media (max-width: 1050px) {
   .list-header,
   .list-row {

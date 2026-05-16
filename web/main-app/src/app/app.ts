@@ -70,8 +70,6 @@ export class App implements OnInit, OnDestroy {
     const page = segments[1] ?? '';
 
     switch (page) {
-      case 'home':
-        return 'tab.home';
       case 'storage':
         return segments[2] === 'files' ? 'tab.file' : 'tab.storage';
       case 'profile':

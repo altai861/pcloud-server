@@ -3,7 +3,6 @@ import { CanActivateFn, Router, Routes } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 
 import { AdminPageComponent } from './components/admin-page/admin-page.component';
-import { HomePageComponent } from './components/home-page/home-page.component';
 import { LoginPageComponent } from './components/login-page/login-page.component';
 import { SearchPageComponent } from './components/search-page/search-page.component';
 import { SharedPageComponent } from './components/shared-page/shared-page.component';
@@ -74,10 +73,6 @@ export const routes: Routes = [
         path: '',
         pathMatch: 'full',
         redirectTo: 'storage'
-      },
-      {
-        path: 'home',
-        component: HomePageComponent
       },
       {
         path: 'storage',

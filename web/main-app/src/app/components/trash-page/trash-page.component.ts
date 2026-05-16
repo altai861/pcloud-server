@@ -12,6 +12,7 @@ import { ClientSessionService } from '../../services/client-session.service';
 import { StorageApiService } from '../../services/storage-api.service';
 import { StorageSidebarActionsService } from '../../services/storage-sidebar-actions.service';
 import { WorkspaceSearchService } from '../../services/workspace-search.service';
+import { resourceIconSrc } from '../../utils/resource-icon';
 
 @Component({
   selector: 'app-trash-page',
@@ -72,6 +73,10 @@ export class TrashPageComponent implements OnInit, OnDestroy {
     }
 
     return count;
+  }
+
+  resourceIcon(entry: StorageEntryDto): string {
+    return resourceIconSrc(entry.entryType, entry.name);
   }
 
   isEntrySelected(entry: StorageEntryDto): boolean {

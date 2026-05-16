@@ -11,6 +11,7 @@ import { TPipe } from '../../pipes/t.pipe';
 import { ClientSessionService } from '../../services/client-session.service';
 import { I18nService } from '../../services/i18n.service';
 import { StorageApiService } from '../../services/storage-api.service';
+import { resourceIconSrc } from '../../utils/resource-icon';
 
 @Component({
   selector: 'app-search-page',
@@ -72,6 +73,10 @@ export class SearchPageComponent implements OnInit, OnDestroy {
     }
 
     this.router.navigate(['/app/storage/files', entry.resourceId]);
+  }
+
+  resourceIcon(entry: SearchResourceEntryDto): string {
+    return resourceIconSrc(entry.resourceType, entry.name);
   }
 
   goToLocation(entry: SearchResourceEntryDto): void {
