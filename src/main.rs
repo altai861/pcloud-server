@@ -1,6 +1,7 @@
 mod app_state;
 mod config;
 mod db;
+mod discovery;
 mod error;
 mod http;
 mod modules;
@@ -10,6 +11,7 @@ mod web;
 use crate::app_state::AppState;
 use crate::config::{AppMode, Config};
 use crate::db::{connect_pool, run_migrations};
+use crate::discovery::{MdnsDiscoveryConfig, run_mdns_discovery};
 use crate::http::router::{build_admin_router, build_client_router};
 use crate::modules::setup::service::is_initialized;
 use crate::relay::{client::run_relay_client, config::RelayClientConfig};
@@ -36,7 +38,15 @@ async fn main() -> anyhow::Result<()> {
     println!("Client API + Web App: http://{}", config.client_bind);
     let client_server = axum::serve(client_listener, client_app);
 
-    if let Some(relay_config) = RelayClientConfig::from_env(config.client_bind)? {
+    let relay_config = RelayClientConfig::from_env(config.client_bind)?;
+
+    if let Some(mdns_config) =
+        MdnsDiscoveryConfig::from_env(config.client_bind, relay_config.as_ref())
+    {
+        tokio::task::spawn_blocking(move || run_mdns_discovery(mdns_config));
+    }
+
+    if let Some(relay_config) = relay_config {
         println!(
             "Relay client enabled. Device ID: {}. Local target: {}",
             relay_config.device_id, relay_config.local_base_url
