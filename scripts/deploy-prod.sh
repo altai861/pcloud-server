@@ -5,15 +5,32 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_NAME="pcloud-server.service"
 USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 INSTALLED_UNIT="$USER_UNIT_DIR/$UNIT_NAME"
-SOURCE_UNIT="$APP_DIR/systemd/user/$UNIT_NAME"
 
 cd "$APP_DIR"
 
 mkdir -p "$USER_UNIT_DIR"
 
-if [[ ! -f "$INSTALLED_UNIT" ]]; then
-  cp "$SOURCE_UNIT" "$INSTALLED_UNIT"
-fi
+cat > "$INSTALLED_UNIT" <<UNIT
+[Unit]
+Description=PCloud Rust application server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$APP_DIR/scripts/run-prod.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+UNIT
 
 cargo build --release
 systemctl --user daemon-reload
